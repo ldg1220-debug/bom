@@ -4,8 +4,10 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import OCREditor from './components/OCREditor';
 import BOMTable from './components/BOMTable';
+import ProjectScreen from './components/ProjectScreen';
 
-function AppContent() {
+// ── 프로젝트가 열린 후의 메인 화면 ──────────────────────────────
+function AppContent({ onChangeProject }) {
   const [activeTab, setActiveTab] = useState('register');
   const [selectedDrawingId, setSelectedDrawingId] = useState(null);
   const [editDrawing, setEditDrawing] = useState(null);
@@ -20,13 +22,13 @@ function AppContent() {
     setActiveTab('register');
   }
 
-  function handleEditCancel() {
-    setEditDrawing(null);
-  }
-
   return (
     <div className="flex flex-col h-screen bg-gray-100">
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Header
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onChangeProject={onChangeProject}
+      />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           onSelectDrawing={setSelectedDrawingId}
@@ -39,7 +41,7 @@ function AppContent() {
               <OCREditor
                 onDrawingAdded={handleDrawingAdded}
                 editDrawing={editDrawing}
-                onEditCancel={handleEditCancel}
+                onEditCancel={() => setEditDrawing(null)}
               />
             </div>
           ) : (
@@ -53,10 +55,19 @@ function AppContent() {
   );
 }
 
+// ── 루트 ────────────────────────────────────────────────────────
 export default function App() {
+  // null = 프로젝트 선택 화면, object = 해당 프로젝트 열기
+  const [projectMeta, setProjectMeta] = useState(null);
+
+  if (!projectMeta) {
+    return <ProjectScreen onSelectProject={setProjectMeta} />;
+  }
+
   return (
-    <BOMProvider>
-      <AppContent />
+    // key를 projectMeta.id로 설정 → 프로젝트 변경 시 BOMProvider 완전 재마운트
+    <BOMProvider key={projectMeta.id} projectMeta={projectMeta}>
+      <AppContent onChangeProject={() => setProjectMeta(null)} />
     </BOMProvider>
   );
 }

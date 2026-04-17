@@ -1,21 +1,27 @@
-import { createContext, useContext, useReducer } from 'react';
+import { createContext, useContext, useReducer, useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { buildBOMRows, detectCircularReferences } from '../utils/bomMapper';
 import { recalculate } from '../utils/calculations';
+import { saveProject, loadProject } from '../utils/db';
 
 const BOMContext = createContext(null);
 
-const initialState = {
-  project: {
-    id: uuidv4(),
-    name: 'BOM 프로젝트',
-    baseDate: '',
-    totalQty: 33,
-  },
-  drawings: [],
-  bomRows: [],
-  circularWarnings: [], // 순환 참조 경고 메시지 목록
-};
+function makeInitialState(projectMeta) {
+  const now = new Date().toISOString();
+  return {
+    project: {
+      id: projectMeta?.id || uuidv4(),
+      name: projectMeta?.name || 'BOM 프로젝트',
+      baseDate: projectMeta?.baseDate || '',
+      totalQty: projectMeta?.totalQty ?? 33,
+      createdAt: projectMeta?.createdAt || now,
+      updatedAt: now,
+    },
+    drawings: [],
+    bomRows: [],
+    circularWarnings: [],
+  };
+}
 
 function rebuild(drawings, totalQty) {
   const warnings = detectCircularReferences(drawings);
@@ -26,9 +32,14 @@ function rebuild(drawings, totalQty) {
 
 function reducer(state, action) {
   switch (action.type) {
+    case 'LOAD_PROJECT': {
+      const { drawings = [], project } = action.data;
+      const { finalRows, warnings } = rebuild(drawings, project?.totalQty ?? 33);
+      return { ...action.data, bomRows: finalRows, circularWarnings: warnings };
+    }
+
     case 'SET_PROJECT_INFO': {
       const newProject = { ...state.project, ...action.payload };
-      // totalQty 변경 시 소요량 재계산
       const finalRows = recalculate(state.bomRows, newProject.totalQty);
       return { ...state, project: newProject, bomRows: finalRows };
     }
@@ -38,15 +49,12 @@ function reducer(state, action) {
       const existingIndex = state.drawings.findIndex(
         (d) => d.drawingNumber === drawing.drawingNumber
       );
-      let newDrawings;
-      if (existingIndex >= 0) {
-        // 기존 id 유지하면서 내용 덮어쓰기
-        newDrawings = state.drawings.map((d, i) =>
-          i === existingIndex ? { ...drawing, id: d.id } : d
-        );
-      } else {
-        newDrawings = [...state.drawings, drawing];
-      }
+      const newDrawings =
+        existingIndex >= 0
+          ? state.drawings.map((d, i) =>
+              i === existingIndex ? { ...drawing, id: d.id } : d
+            )
+          : [...state.drawings, drawing];
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
     }
@@ -61,25 +69,60 @@ function reducer(state, action) {
       const updated = state.bomRows.map((row) =>
         row.id === action.rowId ? { ...row, ...action.fields } : row
       );
-      const finalRows = recalculate(updated, state.project.totalQty);
-      return { ...state, bomRows: finalRows };
+      return { ...state, bomRows: recalculate(updated, state.project.totalQty) };
     }
 
-    case 'CLEAR_CIRCULAR_WARNINGS': {
+    case 'CLEAR_CIRCULAR_WARNINGS':
       return { ...state, circularWarnings: [] };
-    }
-
-    case 'IMPORT_PROJECT': {
-      return { ...initialState, ...action.project };
-    }
 
     default:
       return state;
   }
 }
 
-export function BOMProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+// ── Provider ─────────────────────────────────────────────────
+
+export function BOMProvider({ children, projectMeta }) {
+  const [state, dispatch] = useReducer(reducer, makeInitialState(projectMeta));
+  const [isLoading, setIsLoading] = useState(!!projectMeta?._load);
+
+  // 기존 프로젝트 불러오기 (mount 시 1회)
+  useEffect(() => {
+    if (!projectMeta?._load) {
+      setIsLoading(false);
+      return;
+    }
+    const id = projectMeta.id;
+    loadProject(id).then((data) => {
+      if (data) {
+        dispatch({ type: 'LOAD_PROJECT', data });
+      }
+      setIsLoading(false);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 상태 변화 시 IndexedDB 자동 저장 (1.5초 디바운스)
+  useEffect(() => {
+    if (isLoading) return;
+    const timer = setTimeout(() => {
+      saveProject(state).catch((err) =>
+        console.error('IndexedDB 저장 실패:', err)
+      );
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [state, isLoading]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-100">
+        <div className="text-center text-gray-500">
+          <p className="text-2xl mb-2 animate-pulse">⚙️</p>
+          <p className="text-sm">프로젝트 불러오는 중...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <BOMContext.Provider value={{ state, dispatch }}>
       {children}
