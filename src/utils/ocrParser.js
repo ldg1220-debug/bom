@@ -296,19 +296,31 @@ function extractPartsFromRawText(rawText) {
 export function parseOCRResult(ocrData) {
   const { data } = ocrData;
 
-  // ── 디버그: 콘솔에 raw 텍스트 출력 ──
+  // ── 디버그 ──
   console.group('[OCR Parser Debug]');
   console.log('Raw text:\n', data.text);
-  console.log('Word count:', data.words?.length);
+  console.log('data keys:', data ? Object.keys(data).join(', ') : 'null');
 
+  // data.words 직접 접근 또는 data.blocks 계층에서 추출
   const words = [];
-  if (data.words) {
-    for (const word of data.words) {
-      if (word.confidence > 10 && word.text.trim()) {
-        words.push({ text: word.text.trim(), bbox: word.bbox });
+  const addWord = (w) => {
+    if (w.confidence > 10 && w.text?.trim()) {
+      words.push({ text: w.text.trim(), bbox: w.bbox });
+    }
+  };
+
+  if (Array.isArray(data.words) && data.words.length > 0) {
+    data.words.forEach(addWord);
+  } else if (data.blocks) {
+    for (const block of data.blocks) {
+      for (const para of block.paragraphs || []) {
+        for (const line of para.lines || []) {
+          for (const word of line.words || []) addWord(word);
+        }
       }
     }
   }
+  console.log('Word count:', words.length);
 
   const rows = groupWordsIntoRows(words);
   const headerIndex = findHeaderRowIndex(rows);
