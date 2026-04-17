@@ -262,10 +262,10 @@ function parseTitleBlock(fullText) {
     }
   }
 
-  // ── 도면번호 폴백: 하이픈 포함 영숫자 패턴 ──
+  // ── 도면번호 폴백: 파이프 없는 줄에서만 탐색 (파트 행 제외) ──
   if (!drawingNumber) {
     for (const line of lines) {
-      // RM-LC01-FC23344 패턴: 2~4글자-2~6글자-1~2글자+3+숫자
+      if (line.includes('|')) continue; // 파트 테이블 행 스킵
       const m = line.match(/([A-Z]{2,4}-[A-Z0-9]{2,6}-[A-Z]{1,2}\d{3,}(?:-[A-Z0-9]+)?)/i);
       if (m) { drawingNumber = m[1].toUpperCase(); break; }
     }
@@ -285,30 +285,83 @@ function parseTitleBlock(fullText) {
   return { drawingNumber, title, rev };
 }
 
+/** 파트번호 패턴 (XX-XXXX-XXXXXX) */
+const PART_NO_RE = /([A-Z]{2,4}-[A-Z0-9]{2,6}-[A-Z]{1,2}\d{3,}(?:-[A-Z0-9]+)?)/i;
+
 /**
- * raw text 줄 단위 파싱 폴백
- * "1 RM-LC01-FC23350 PANEL, A5052P-H32 1 EA" 같은 패턴 감지
+ * raw text 파이프(|) 구분자 기반 파트 파싱
+ * 표 테두리 제거 후 OCR 결과: "| 9 | RM-LCO1-FC23430 | RIB, | ... | 2 | EA |"
  */
 function extractPartsFromRawText(rawText) {
   const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
   const parts = [];
+  const seen = new Set();
 
   for (const line of lines) {
-    // 숫자로 시작하고 하이픈 포함 파트번호가 이어지는 줄
-    const m = line.match(
-      /^(\d{1,3})\s+([A-Z0-9][A-Z0-9\-./]{3,})\s+(.+?)\s{2,}([A-Z0-9\-./]{3,})\s+(\d+\.?\d*)\s+([A-Z]{1,5})\s*(.*)$/i
-    );
-    if (m) {
-      parts.push({
-        seq: parseInt(m[1]),
-        partNumber: m[2].trim().toUpperCase(),
-        description: m[3].trim(),
-        material: m[4].trim().toUpperCase(),
-        qty: parseFloat(m[5]) || 1,
-        unit: m[6].trim().toUpperCase(),
-        specRemark: (m[7] || '').trim(),
-      });
+    // 괄호류를 파이프로 정규화, 연속 파이프 단일화, 양 끝 제거
+    const norm = line
+      .replace(/[[\](){}<>]/g, '|')
+      .replace(/\|+/g, '|')
+      .replace(/^\||\|$/g, '')
+      .trim();
+    const cells = norm.split('|').map((c) => c.trim()).filter(Boolean);
+    if (cells.length < 2) continue;
+
+    // 파트번호 셀 탐색
+    let partNumber = '';
+    let partIdx = -1;
+    for (let i = 0; i < cells.length; i++) {
+      const m = cells[i].match(PART_NO_RE);
+      if (m) { partNumber = m[1].toUpperCase(); partIdx = i; break; }
     }
+    if (!partNumber) continue;
+
+    // seq: 파트번호 셀 앞에서 숫자 탐색
+    let seq = 0;
+    for (let i = 0; i < partIdx; i++) {
+      const m = cells[i].match(/^(\d{1,2})/);
+      if (m) { seq = parseInt(m[1]); break; }
+    }
+    if (seq < 1 || seq > 99 || seen.has(seq)) continue;
+    seen.add(seq);
+
+    // 설명: 파트번호 셀 내 나머지 or 다음 셀
+    let description = '';
+    const partCell = cells[partIdx];
+    const pmatch = partCell.match(PART_NO_RE);
+    if (pmatch) {
+      const after = partCell.slice(pmatch.index + pmatch[0].length).trim();
+      description = after.replace(/^[,.\s\-]+/, '').trim();
+    }
+    if (!description && partIdx + 1 < cells.length) {
+      description = cells[partIdx + 1];
+    }
+    // 설명 후처리: 뒤에 붙은 숫자/기호 제거
+    description = description
+      .replace(/\s+[IlL|1]\s*[—\-]+.*$/, '')
+      .replace(/\s+\d+\s*$/, '')
+      .replace(/[€£¥©®]+/g, '')
+      .replace(/^[,.\s]+|[,.\s]+$/, '')
+      .trim();
+
+    // 수량 / 단위: 남은 셀에서 숫자 탐색
+    let qty = 1;
+    let unit = 'EA';
+    for (let i = partIdx + 1; i < cells.length; i++) {
+      const m = cells[i].match(/^(\d+\.?\d*)\s*([A-Z]{1,5})?/i);
+      if (m && parseFloat(m[1]) >= 1 && parseFloat(m[1]) < 1000) {
+        qty = parseFloat(m[1]);
+        if (m[2]) {
+          unit = m[2].toUpperCase();
+        } else if (i + 1 < cells.length) {
+          const u = cells[i + 1].replace(/[^A-Za-z]/g, '').toUpperCase();
+          if (u.length >= 1 && u.length <= 5) unit = u || 'EA';
+        }
+        break;
+      }
+    }
+
+    parts.push({ seq, partNumber, description, material: '', qty, unit, specRemark: '' });
   }
 
   parts.sort((a, b) => a.seq - b.seq);
