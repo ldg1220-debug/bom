@@ -141,6 +141,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     if (isEditMode) onEditCancel && onEditCancel();
   }
 
+  const [showRaw, setShowRaw] = useState(false);
+
   const COLS = ['seq', 'partNumber', 'description', 'material', 'qty', 'unit', 'specRemark'];
   const COL_LABELS = ['No', 'PART NO.', '품명', '재질', '수량', '단위', 'SPEC & REMARK'];
   const COL_WIDTHS = ['w-12', 'w-40', 'w-44', 'w-28', 'w-14', 'w-16', 'w-36'];
@@ -269,6 +271,24 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
           </button>
         </div>
       </div>
+
+      {/* Raw OCR 텍스트 (디버그) */}
+      {rawText && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+          <button
+            onClick={() => setShowRaw((v) => !v)}
+            className="w-full px-4 py-2 text-xs text-gray-500 flex items-center justify-between hover:bg-gray-100"
+          >
+            <span>🔍 Raw OCR 텍스트 (파싱 확인용)</span>
+            <span>{showRaw ? '▲ 접기' : '▼ 펼치기'}</span>
+          </button>
+          {showRaw && (
+            <pre className="px-4 py-3 text-xs text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap border-t border-gray-200">
+              {rawText}
+            </pre>
+          )}
+        </div>
+      )}
 
       {/* BOM에 추가/저장 버튼 */}
       <div className="flex gap-2">
