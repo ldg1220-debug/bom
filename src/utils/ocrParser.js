@@ -192,9 +192,9 @@ function looksLikeTitle(s) {
  */
 function cleanTitle(s) {
   if (!s) return s;
-  // 앞의 짧은 비단어 토큰 제거 (2글자 이하이거나 모음 없는 토큰)
   const tokens = s.split(/\s+/);
   const COMMON_SHORT = new Set(['A', 'AN', 'OF', 'OR', 'TO', 'IN', 'IS', 'AT', 'ON', 'NO']);
+  // 앞의 짧은 비단어 토큰 제거
   let startIdx = 0;
   for (let i = 0; i < tokens.length - 1; i++) {
     const t = tokens[i].replace(/[^A-Z]/gi, '');
@@ -204,7 +204,17 @@ function cleanTitle(s) {
       break;
     }
   }
-  return tokens.slice(startIdx).join(' ');
+  // 뒤의 짧은 비단어 토큰 제거
+  let endIdx = tokens.length;
+  for (let i = tokens.length - 1; i > startIdx; i--) {
+    const t = tokens[i].replace(/[^A-Z]/gi, '');
+    if (t.length <= 2 && !COMMON_SHORT.has(t.toUpperCase())) {
+      endIdx = i;
+    } else {
+      break;
+    }
+  }
+  return tokens.slice(startIdx, endIdx).join(' ');
 }
 
 function parseTitleBlock(fullText) {
@@ -262,12 +272,40 @@ function parseTitleBlock(fullText) {
     }
   }
 
-  // ── 도면번호 폴백: 파이프 없는 줄에서만 탐색 (파트 행 제외) ──
+  // ── 도면번호 폴백: 파트 테이블에 등장하는 번호는 제외 ──
   if (!drawingNumber) {
+    // 파트 테이블(파이프 포함 행)에 나오는 번호 수집
+    const tableNums = new Set();
     for (const line of lines) {
-      if (line.includes('|')) continue; // 파트 테이블 행 스킵
-      const m = line.match(/([A-Z]{2,4}-[A-Z0-9]{2,6}-[A-Z]{1,2}\d{3,}(?:-[A-Z0-9]+)?)/i);
-      if (m) { drawingNumber = m[1].toUpperCase(); break; }
+      if (!line.includes('|')) continue;
+      const matches = line.match(new RegExp(PART_NO_RE.source, 'gi'));
+      if (matches) matches.forEach((m) => tableNums.add(normalizeOCRPartNumber(m)));
+    }
+    // 파이프 없는 행 우선 탐색
+    for (const line of lines) {
+      if (line.includes('|')) continue;
+      const m = line.match(PART_NO_RE);
+      if (m && !tableNums.has(normalizeOCRPartNumber(m[1]))) {
+        drawingNumber = m[1].toUpperCase(); break;
+      }
+    }
+    // 파이프 있는 행에서도 탐색 (타이틀 블록이 박스 안에 있는 경우)
+    if (!drawingNumber) {
+      for (const line of lines) {
+        if (!line.includes('|')) continue;
+        const norm = line.replace(/[[\](){}<>]/g, '|').replace(/\|+/g, '|').replace(/^\||\|$/, '').trim();
+        const cells = norm.split('|').map((c) => c.trim());
+        // 셀이 1~2개인 행만 고려 (파트 테이블 행은 4개 이상)
+        const matchCells = cells.filter(Boolean);
+        if (matchCells.length > 2) continue;
+        for (const cell of matchCells) {
+          const m = cell.match(PART_NO_RE);
+          if (m && !tableNums.has(normalizeOCRPartNumber(m[1]))) {
+            drawingNumber = m[1].toUpperCase(); break;
+          }
+        }
+        if (drawingNumber) break;
+      }
     }
   }
 
@@ -285,8 +323,21 @@ function parseTitleBlock(fullText) {
   return { drawingNumber, title, rev };
 }
 
-/** 파트번호 패턴 (XX-XXXX-XXXXXX) */
-const PART_NO_RE = /([A-Z]{2,4}-[A-Z0-9]{2,6}-[A-Z]{1,2}\d{3,}(?:-[A-Z0-9]+)?)/i;
+/**
+ * 파트번호 패턴 (XX-XXXX-XXXXXX)
+ * OCR 오독 허용: O↔0, I/l↔1 치환을 수용하도록 넓은 범위 사용
+ */
+const PART_NO_RE = /\b([A-Z]{1,4}-[A-Z0-9]{2,8}-[A-Z0-9]{4,14}(?:-[A-Z0-9]+)?)\b/i;
+
+/** OCR 오독 정규화: O→0, I/l→1 (숫자 자리 추정 - 두 번째 세그부터 적용) */
+function normalizeOCRPartNumber(pn) {
+  const segs = pn.toUpperCase().split('-');
+  if (segs.length < 3) return pn.toUpperCase();
+  return segs.map((seg, idx) => {
+    if (idx === 0) return seg;
+    return seg.replace(/O/g, '0').replace(/[IL]/g, '1');
+  }).join('-');
+}
 
 /**
  * raw text 파이프(|) 구분자 기반 파트 파싱
@@ -295,7 +346,9 @@ const PART_NO_RE = /([A-Z]{2,4}-[A-Z0-9]{2,6}-[A-Z]{1,2}\d{3,}(?:-[A-Z0-9]+)?)/i
 function extractPartsFromRawText(rawText) {
   const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
   const parts = [];
-  const seen = new Set();
+  const seenSeqs = new Set();
+  const seenParts = new Set(); // 정규화된 파트번호 기준 중복 제거
+  let maxSeq = 0;
 
   for (const line of lines) {
     // 괄호류를 파이프로 정규화, 연속 파이프 단일화, 양 끝 제거
@@ -316,14 +369,29 @@ function extractPartsFromRawText(rawText) {
     }
     if (!partNumber) continue;
 
-    // seq: 파트번호 셀 앞에서 숫자 탐색
+    // 정규화된 파트번호로 중복 확인
+    const pnNorm = normalizeOCRPartNumber(partNumber);
+    if (seenParts.has(pnNorm)) continue;
+    seenParts.add(pnNorm);
+
+    // seq: 파트번호 셀 앞에서 숫자 탐색 (없으면 fallback 카운터)
     let seq = 0;
     for (let i = 0; i < partIdx; i++) {
       const m = cells[i].match(/^(\d{1,2})/);
       if (m) { seq = parseInt(m[1]); break; }
     }
-    if (seq < 1 || seq > 99 || seen.has(seq)) continue;
-    seen.add(seq);
+    if (seq > 99) continue;
+    if (seq > 0 && seenSeqs.has(seq)) continue;
+    if (seq > 0) {
+      seenSeqs.add(seq);
+      maxSeq = Math.max(maxSeq, seq);
+    } else {
+      // seq를 OCR에서 읽지 못한 경우: 사용되지 않은 다음 번호 할당
+      maxSeq++;
+      while (seenSeqs.has(maxSeq)) maxSeq++;
+      seq = maxSeq;
+      seenSeqs.add(seq);
+    }
 
     // 설명: 파트번호 셀 내 나머지 or 다음 셀
     let description = '';
@@ -409,6 +477,11 @@ export function parseOCRResult(ocrData) {
     console.log('Coordinate parsing failed → trying raw text parsing');
     parts = extractPartsFromRawText(data.text);
     console.log('Raw text parts found:', parts.length);
+    if (parts.length > 0) {
+      console.log('Parts (seq | partNumber | desc | qty):', parts.map(p =>
+        `${p.seq} | ${p.partNumber} | ${p.description} | ${p.qty}`
+      ));
+    }
   }
 
   const titleInfo = parseTitleBlock(data.text || '');
