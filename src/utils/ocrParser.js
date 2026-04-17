@@ -19,7 +19,7 @@ function extractWordsFromTSV(tsv) {
     if (level !== 5) continue; // 5 = word level
     const conf = parseFloat(cols[10]);
     const text = cols[11]?.trim();
-    if (conf < 10 || !text) continue;
+    if (conf <= -1 || !text) continue; // -1 = 공백 토큰, 그 외는 모두 포함
     const left = parseInt(cols[6]);
     const top = parseInt(cols[7]);
     const w = parseInt(cols[8]);
@@ -329,7 +329,8 @@ export function parseOCRResult(ocrData) {
   // TSV 파싱으로 단어 좌표 추출 (data.words/blocks 보다 신뢰성 높음)
   const words = extractWordsFromTSV(data.tsv);
   console.log('Word count (from TSV):', words.length);
-  if (words.length > 0) console.log('Sample words:', words.slice(0, 5).map(w => w.text));
+  console.log('TSV sample (first 8 lines):', data.tsv?.split('\n').slice(0, 8));
+  if (words.length > 0) console.log('Sample words:', words.slice(0, 8).map(w => w.text));
 
   const rows = groupWordsIntoRows(words);
   const headerIndex = findHeaderRowIndex(rows);

@@ -3,7 +3,50 @@ import Tesseract from 'tesseract.js';
 import { parseOCRResult } from '../utils/ocrParser';
 
 /**
- * OCR 전처리: 그레이스케일 + 대비 강화 → Tesseract 인식률 개선
+ * 이미지에서 긴 수평/수직 직선(표 테두리)을 흰색으로 지워 OCR 오독 방지
+ */
+function removeBorderLines(d, w, h) {
+  const DARK = 120;
+  const MIN_H = Math.floor(w * 0.15); // 수평선: 이미지 너비의 15% 이상
+  const MIN_V = Math.floor(h * 0.06); // 수직선: 이미지 높이의 6% 이상
+
+  // 수평 직선 제거
+  for (let y = 0; y < h; y++) {
+    let start = -1;
+    for (let x = 0; x <= w; x++) {
+      const dark = x < w && d[(y * w + x) * 4] < DARK;
+      if (dark && start === -1) start = x;
+      if (!dark && start >= 0) {
+        if (x - start >= MIN_H) {
+          for (let i = start; i < x; i++) {
+            d[(y * w + i) * 4] = d[(y * w + i) * 4 + 1] = d[(y * w + i) * 4 + 2] = 255;
+          }
+        }
+        start = -1;
+      }
+    }
+  }
+
+  // 수직 직선 제거
+  for (let x = 0; x < w; x++) {
+    let start = -1;
+    for (let y = 0; y <= h; y++) {
+      const dark = y < h && d[(y * w + x) * 4] < DARK;
+      if (dark && start === -1) start = y;
+      if (!dark && start >= 0) {
+        if (y - start >= MIN_V) {
+          for (let i = start; i < y; i++) {
+            d[(i * w + x) * 4] = d[(i * w + x) * 4 + 1] = d[(i * w + x) * 4 + 2] = 255;
+          }
+        }
+        start = -1;
+      }
+    }
+  }
+}
+
+/**
+ * OCR 전처리: 업스케일 + 그레이스케일 + 대비 강화 + 테두리 선 제거
  */
 async function preprocessImageForOCR(file) {
   return new Promise((resolve, reject) => {
@@ -11,7 +54,6 @@ async function preprocessImageForOCR(file) {
     const url = URL.createObjectURL(file);
     img.onload = () => {
       try {
-        // Tesseract 최적 해상도: 300DPI 기준 최소 1500px 권장
         const TARGET_WIDTH = 2000;
         const scale = img.width < TARGET_WIDTH ? TARGET_WIDTH / img.width : 1;
         const w = Math.round(img.width * scale);
@@ -21,8 +63,6 @@ async function preprocessImageForOCR(file) {
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext('2d');
-
-        // 흰 배경
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
@@ -30,13 +70,15 @@ async function preprocessImageForOCR(file) {
         const imageData = ctx.getImageData(0, 0, w, h);
         const d = imageData.data;
 
+        // 그레이스케일 + 대비 강화
         for (let i = 0; i < d.length; i += 4) {
-          // 그레이스케일
           const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-          // 대비 강화만 (이진화 없음 — 이진화 시 인식률 저하 확인)
-          const enhanced = Math.min(255, Math.max(0, 1.8 * (gray - 128) + 128));
-          d[i] = d[i + 1] = d[i + 2] = enhanced;
+          const v = Math.min(255, Math.max(0, 1.6 * (gray - 128) + 128));
+          d[i] = d[i + 1] = d[i + 2] = v;
         }
+
+        // 표 테두리 직선 제거
+        removeBorderLines(d, w, h);
 
         ctx.putImageData(imageData, 0, 0);
         URL.revokeObjectURL(url);
@@ -73,9 +115,7 @@ export default function DrawingUpload({ onOCRComplete }) {
     setOcrMessage('이미지 전처리 중...');
 
     try {
-      // 전처리된 이미지로 OCR 수행
       const processedBlob = await preprocessImageForOCR(file);
-
       setOcrMessage('OCR 초기화 중...');
 
       const result = await Tesseract.recognize(processedBlob, 'eng+kor', {
@@ -87,7 +127,6 @@ export default function DrawingUpload({ onOCRComplete }) {
             setOcrMessage(m.status);
           }
         },
-        // PSM 3: AUTO — 자동 레이아웃 감지
         tessedit_pageseg_mode: '3',
         preserve_interword_spaces: '1',
       });
@@ -153,27 +192,18 @@ export default function DrawingUpload({ onOCRComplete }) {
       >
         {imageUrl ? (
           <div className="relative">
-            <img
-              src={imageUrl}
-              alt="업로드된 도면"
-              className="w-full max-h-96 object-contain rounded-lg"
-            />
+            <img src={imageUrl} alt="업로드된 도면" className="w-full max-h-96 object-contain rounded-lg" />
             <button
               onClick={clearImage}
               className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm shadow"
-            >
-              ✕
-            </button>
+            >✕</button>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="text-5xl mb-3 text-gray-300">📋</div>
             <p className="text-gray-600 font-medium mb-1">파트리스트 스크린샷을 여기에 붙여넣으세요</p>
             <p className="text-gray-400 text-sm mb-3">Ctrl+V · 드래그 앤 드롭 · 파일 선택</p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded"
-            >
+            <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
               파일 선택
             </button>
           </div>
@@ -194,13 +224,11 @@ export default function DrawingUpload({ onOCRComplete }) {
           <p className="text-xs text-blue-500 mt-1">{ocrMessage}</p>
         </div>
       )}
-
       {ocrStatus === 'done' && (
         <div className="bg-green-50 border border-green-200 rounded p-2 text-sm text-green-700">
           ✅ OCR 완료 — 아래 내용을 확인 및 수정 후 [BOM에 추가]를 누르세요.
         </div>
       )}
-
       {ocrStatus === 'error' && (
         <div className="bg-red-50 border border-red-200 rounded p-2 text-sm text-red-700">
           ❌ {ocrMessage}
