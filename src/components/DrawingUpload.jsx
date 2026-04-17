@@ -7,10 +7,11 @@ import { parseOCRResult } from '../utils/ocrParser';
  */
 function removeBorderLines(d, w, h) {
   const DARK = 120;
-  const MIN_H = Math.floor(w * 0.15); // 수평선: 이미지 너비의 15% 이상
-  const MIN_V = Math.floor(h * 0.06); // 수직선: 이미지 높이의 6% 이상
+  const PAD = 2;    // 선 제거 후 양방향으로 확장할 픽셀 수 (잔여 선 픽셀 제거)
+  const MIN_H = Math.floor(w * 0.18); // 수평선: 이미지 너비의 18% 이상
+  const MIN_V = Math.floor(h * 0.07); // 수직선: 이미지 높이의 7% 이상
 
-  // 수평 직선 제거
+  // 수평 직선 제거 (y축 ±PAD 확장)
   for (let y = 0; y < h; y++) {
     let start = -1;
     for (let x = 0; x <= w; x++) {
@@ -19,7 +20,12 @@ function removeBorderLines(d, w, h) {
       if (!dark && start >= 0) {
         if (x - start >= MIN_H) {
           for (let i = start; i < x; i++) {
-            d[(y * w + i) * 4] = d[(y * w + i) * 4 + 1] = d[(y * w + i) * 4 + 2] = 255;
+            for (let dy = -PAD; dy <= PAD; dy++) {
+              const yy = y + dy;
+              if (yy >= 0 && yy < h) {
+                d[(yy * w + i) * 4] = d[(yy * w + i) * 4 + 1] = d[(yy * w + i) * 4 + 2] = 255;
+              }
+            }
           }
         }
         start = -1;
@@ -27,7 +33,7 @@ function removeBorderLines(d, w, h) {
     }
   }
 
-  // 수직 직선 제거
+  // 수직 직선 제거 (x축 ±PAD 확장)
   for (let x = 0; x < w; x++) {
     let start = -1;
     for (let y = 0; y <= h; y++) {
@@ -36,7 +42,12 @@ function removeBorderLines(d, w, h) {
       if (!dark && start >= 0) {
         if (y - start >= MIN_V) {
           for (let i = start; i < y; i++) {
-            d[(i * w + x) * 4] = d[(i * w + x) * 4 + 1] = d[(i * w + x) * 4 + 2] = 255;
+            for (let dx = -PAD; dx <= PAD; dx++) {
+              const xx = x + dx;
+              if (xx >= 0 && xx < w) {
+                d[(i * w + xx) * 4] = d[(i * w + xx) * 4 + 1] = d[(i * w + xx) * 4 + 2] = 255;
+              }
+            }
           }
         }
         start = -1;

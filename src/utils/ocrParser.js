@@ -324,10 +324,11 @@ function parseTitleBlock(fullText) {
 }
 
 /**
- * 파트번호 패턴 (XX-XXXX-XXXXXX)
- * OCR 오독 허용: O↔0, I/l↔1 치환을 수용하도록 넓은 범위 사용
+ * 파트번호 패턴
+ * - 3세그먼트: RM-LC01-FC23344, RM-LC01-FC23352-L
+ * - 2세그먼트: CP709017-401, CP100801-507
  */
-const PART_NO_RE = /\b([A-Z]{1,4}-[A-Z0-9]{2,8}-[A-Z0-9]{4,14}(?:-[A-Z0-9]+)?)\b/i;
+const PART_NO_RE = /\b((?:[A-Z]{1,4}-[A-Z0-9]{2,8}-[A-Z0-9]{4,14}(?:-[A-Z0-9]+)?)|(?:[A-Z]{2,4}[0-9]{4,8}-[A-Z0-9]{2,6}))\b/i;
 
 /** OCR 오독 정규화: O→0, I/l→1 (숫자 자리 추정 - 두 번째 세그부터 적용) */
 function normalizeOCRPartNumber(pn) {
