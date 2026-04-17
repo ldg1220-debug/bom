@@ -14,6 +14,7 @@ db.version(1).stores({
 export async function saveProject(state) {
   const { bomRows, circularWarnings, ...persistable } = state;
   await db.projects.put({
+    id: state.project.id,       // Dexie 키 경로: 최상위 id 필수
     ...persistable,
     project: {
       ...persistable.project,
