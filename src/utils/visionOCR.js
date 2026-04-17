@@ -45,13 +45,12 @@ export async function extractBOMWithClaude(imageBlob, apiKey) {
   const base64Data = dataUrl.split(',')[1];
   const mediaType = imageBlob.type || 'image/png';
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch('/api/anthropic/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-allow-direct-browser-access': 'true',
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
