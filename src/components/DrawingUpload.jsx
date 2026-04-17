@@ -33,10 +33,9 @@ async function preprocessImageForOCR(file) {
         for (let i = 0; i < d.length; i += 4) {
           // 그레이스케일
           const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-          // 대비 강화 (factor 2.2) + 임계값 이진화
-          const contrast = Math.min(255, Math.max(0, 2.2 * (gray - 128) + 128));
-          const bin = contrast > 160 ? 255 : 0;
-          d[i] = d[i + 1] = d[i + 2] = bin;
+          // 대비 강화만 (이진화 없음 — 이진화 시 인식률 저하 확인)
+          const enhanced = Math.min(255, Math.max(0, 1.8 * (gray - 128) + 128));
+          d[i] = d[i + 1] = d[i + 2] = enhanced;
         }
 
         ctx.putImageData(imageData, 0, 0);
@@ -88,8 +87,8 @@ export default function DrawingUpload({ onOCRComplete }) {
             setOcrMessage(m.status);
           }
         },
-        // PSM 11: SPARSE_TEXT — 표 레이아웃에 효과적
-        tessedit_pageseg_mode: '11',
+        // PSM 3: AUTO — 자동 레이아웃 감지
+        tessedit_pageseg_mode: '3',
         preserve_interword_spaces: '1',
       });
 

@@ -5,6 +5,31 @@
 const HEADER_KEYWORDS = ['no', 'part', 'description', 'material', 'qty', 'unit', 'spec', 'remark'];
 
 /**
+ * Tesseract TSV 출력 파싱 → 단어 + bbox 배열
+ * TSV 컬럼: level page_num block par line word left top width height conf text
+ */
+function extractWordsFromTSV(tsv) {
+  if (!tsv) return [];
+  const lines = tsv.split('\n');
+  const words = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split('\t');
+    if (cols.length < 12) continue;
+    const level = parseInt(cols[0]);
+    if (level !== 5) continue; // 5 = word level
+    const conf = parseFloat(cols[10]);
+    const text = cols[11]?.trim();
+    if (conf < 10 || !text) continue;
+    const left = parseInt(cols[6]);
+    const top = parseInt(cols[7]);
+    const w = parseInt(cols[8]);
+    const h = parseInt(cols[9]);
+    words.push({ text, bbox: { x0: left, y0: top, x1: left + w, y1: top + h } });
+  }
+  return words;
+}
+
+/**
  * OCR 단어 배열을 Y좌표 기준으로 행 그룹핑
  * yTolerance를 단어 높이 기반으로 자동 계산
  */
@@ -301,26 +326,10 @@ export function parseOCRResult(ocrData) {
   console.log('Raw text:\n', data.text);
   console.log('data keys:', data ? Object.keys(data).join(', ') : 'null');
 
-  // data.words 직접 접근 또는 data.blocks 계층에서 추출
-  const words = [];
-  const addWord = (w) => {
-    if (w.confidence > 10 && w.text?.trim()) {
-      words.push({ text: w.text.trim(), bbox: w.bbox });
-    }
-  };
-
-  if (Array.isArray(data.words) && data.words.length > 0) {
-    data.words.forEach(addWord);
-  } else if (data.blocks) {
-    for (const block of data.blocks) {
-      for (const para of block.paragraphs || []) {
-        for (const line of para.lines || []) {
-          for (const word of line.words || []) addWord(word);
-        }
-      }
-    }
-  }
-  console.log('Word count:', words.length);
+  // TSV 파싱으로 단어 좌표 추출 (data.words/blocks 보다 신뢰성 높음)
+  const words = extractWordsFromTSV(data.tsv);
+  console.log('Word count (from TSV):', words.length);
+  if (words.length > 0) console.log('Sample words:', words.slice(0, 5).map(w => w.text));
 
   const rows = groupWordsIntoRows(words);
   const headerIndex = findHeaderRowIndex(rows);
