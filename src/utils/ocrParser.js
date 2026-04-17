@@ -4,14 +4,25 @@
 
 const HEADER_KEYWORDS = ['no', 'part', 'description', 'material', 'qty', 'unit', 'spec', 'remark'];
 
-function groupWordsIntoRows(words, yTolerance = 12) {
+/**
+ * OCR 단어 배열을 Y좌표 기준으로 행 그룹핑
+ * yTolerance를 단어 높이 기반으로 자동 계산
+ */
+function groupWordsIntoRows(words) {
   if (!words || words.length === 0) return [];
+
+  // 평균 단어 높이의 60%를 허용 오차로 사용 (해상도 무관)
+  const avgHeight = words.reduce((s, w) => s + (w.bbox.y1 - w.bbox.y0), 0) / words.length;
+  const yTolerance = Math.max(8, Math.round(avgHeight * 0.6));
+
   const sorted = [...words].sort((a, b) => a.bbox.y0 - b.bbox.y0);
   const rows = [];
   let currentRow = [sorted[0]];
+
   for (let i = 1; i < sorted.length; i++) {
     const word = sorted[i];
-    if (Math.abs(word.bbox.y0 - currentRow[0].bbox.y0) <= yTolerance) {
+    const rowTop = currentRow[0].bbox.y0;
+    if (Math.abs(word.bbox.y0 - rowTop) <= yTolerance) {
       currentRow.push(word);
     } else {
       rows.push(currentRow.sort((a, b) => a.bbox.x0 - b.bbox.x0));
@@ -27,12 +38,17 @@ function rowToText(row) {
 }
 
 function findHeaderRowIndex(rows) {
+  let bestIdx = -1;
+  let bestCount = 0;
   for (let i = 0; i < rows.length; i++) {
     const text = rowToText(rows[i]);
     const matchCount = HEADER_KEYWORDS.filter((kw) => text.includes(kw)).length;
-    if (matchCount >= 3) return i;
+    if (matchCount >= 2 && matchCount > bestCount) {
+      bestCount = matchCount;
+      bestIdx = i;
+    }
   }
-  return -1;
+  return bestIdx;
 }
 
 function parseHeaderColumns(headerRow) {
@@ -74,15 +90,7 @@ function assignWordToColumn(word, columns) {
 }
 
 function parseDataRow(row, columns, fallbackSeq) {
-  const part = {
-    seq: 0,
-    partNumber: '',
-    description: '',
-    material: '',
-    qty: 1,
-    unit: 'EA',
-    specRemark: '',
-  };
+  const part = { seq: 0, partNumber: '', description: '', material: '', qty: 1, unit: 'EA', specRemark: '' };
 
   if (columns.length === 0) {
     const texts = row.map((w) => w.text);
@@ -116,24 +124,64 @@ function parseDataRow(row, columns, fallbackSeq) {
   return part;
 }
 
-// ── 타이틀 블록 파싱 헬퍼 ──────────────────────────────────────
+/**
+ * 특정 범위의 rows에서 파트 추출
+ */
+function extractPartsFromRange(rows, startIdx, endIdx, columns) {
+  const parts = [];
+  let partSeq = 1;
+  for (let i = startIdx; i < endIdx; i++) {
+    const rowText = rowToText(rows[i]);
+    if (!rowText.trim()) continue;
+    if (/approved|checked|drawn|date|scale|sheet/i.test(rowText)) continue;
+
+    const part = parseDataRow(rows[i], columns, partSeq);
+    if (part.partNumber || part.description) {
+      parts.push(part);
+      partSeq++;
+    }
+  }
+  parts.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+  return parts;
+}
+
+// ── 타이틀 블록 파싱 ──────────────────────────────────────────
 
 function hasKorean(s) {
   return /[\u3130-\u318F\uAC00-\uD7AF]/.test(s);
 }
 
-/** 조립체 명칭처럼 보이는지 (ALL CAPS, 날짜/한글 없음) */
+/** 조립체 명칭처럼 보이는지 확인 */
 function looksLikeTitle(s) {
   if (!s || s.length < 4 || s.length > 70) return false;
-  if (/\d{4,}/.test(s)) return false;    // 연도/긴 숫자 포함 시 제외
+  if (/\d{4,}/.test(s)) return false;
   if (hasKorean(s)) return false;
   if (/[=@#$%^&*(){}\[\]|<>]/.test(s)) return false;
   return /^[A-Z][A-Z0-9\s,._\-/]+$/i.test(s);
 }
 
 /**
- * 타이틀 블록(도면 하단)에서 도면번호, 제목, REV 추출
+ * 제목 앞부분의 OCR 노이즈 제거
+ * 예: "EI EE FRONT PANEL," → "FRONT PANEL,"
+ * 영어 사전에 없을 법한 2~3자 단어들은 실제 제목 전 노이즈로 판단
  */
+function cleanTitle(s) {
+  if (!s) return s;
+  // 앞의 짧은 비단어 토큰 제거 (2글자 이하이거나 모음 없는 토큰)
+  const tokens = s.split(/\s+/);
+  const COMMON_SHORT = new Set(['A', 'AN', 'OF', 'OR', 'TO', 'IN', 'IS', 'AT', 'ON', 'NO']);
+  let startIdx = 0;
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const t = tokens[i].replace(/[^A-Z]/gi, '');
+    if (t.length <= 2 && !COMMON_SHORT.has(t.toUpperCase())) {
+      startIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+  return tokens.slice(startIdx).join(' ');
+}
+
 function parseTitleBlock(fullText) {
   const lines = fullText.split('\n').map((l) => l.trim()).filter(Boolean);
   let drawingNumber = '';
@@ -157,7 +205,6 @@ function parseTitleBlock(fullText) {
 
     // ── DWG NO ──
     if (!drawingNumber && (lineUp.includes('DWG') || lineUp.includes('DRAWING')) && lineUp.includes('NO')) {
-      // 같은 줄에서 "NO" 이후 내용 추출
       const after = line.replace(/.*(?:dwg|drawing)\s*\.?\s*no\s*\.?\s*/i, '').trim();
       const token = after.split(/\s+/)[0];
       if (token && token.length > 3 && /[A-Z0-9]/i.test(token)) {
@@ -170,19 +217,16 @@ function parseTitleBlock(fullText) {
 
     // ── TITLE ──
     if (!title && lineUp.includes('TITLE')) {
-      // 같은 줄에서 "TITLE" 이후 내용 먼저 확인
       const afterTitle = line.replace(/.*?title\s*/i, '').trim();
       if (looksLikeTitle(afterTitle)) {
-        title = afterTitle.toUpperCase();
-        // 다음 줄이 제목 연속인지 확인
+        title = cleanTitle(afterTitle.toUpperCase());
         if (i + 1 < lines.length && looksLikeTitle(lines[i + 1])) {
           title += ' ' + lines[i + 1].trim().toUpperCase();
         }
       } else {
-        // 다음 몇 줄에서 제목처럼 보이는 줄 탐색
         for (let j = i + 1; j <= Math.min(i + 5, lines.length - 1); j++) {
           if (looksLikeTitle(lines[j])) {
-            title = lines[j].trim().toUpperCase();
+            title = cleanTitle(lines[j].trim().toUpperCase());
             if (j + 1 < lines.length && looksLikeTitle(lines[j + 1])) {
               title += ' ' + lines[j + 1].trim().toUpperCase();
             }
@@ -193,23 +237,23 @@ function parseTitleBlock(fullText) {
     }
   }
 
-  // ── 도면번호 폴백: 하이픈 포함 영숫자 패턴 (대소문자 무관) ──
+  // ── 도면번호 폴백: 하이픈 포함 영숫자 패턴 ──
   if (!drawingNumber) {
     for (const line of lines) {
-      const m = line.match(/\b([A-Z]{2,4}-[A-Z0-9]{2,6}-[A-Z]{1,2}\d{3,}(?:-[A-Z0-9]+)?)\b/i);
+      // RM-LC01-FC23344 패턴: 2~4글자-2~6글자-1~2글자+3+숫자
+      const m = line.match(/([A-Z]{2,4}-[A-Z0-9]{2,6}-[A-Z]{1,2}\d{3,}(?:-[A-Z0-9]+)?)/i);
       if (m) { drawingNumber = m[1].toUpperCase(); break; }
     }
   }
 
-  // ── 제목 폴백: 가장 긴 all-caps 영문 라인 ──
+  // ── 제목 폴백 ──
   if (!title) {
     const candidates = lines
       .filter(looksLikeTitle)
-      // 도면번호처럼 보이는 것은 제외 (하이픈 3개 이상)
-      .filter((c) => (c.match(/-/g) || []).length < 3);
+      .filter((c) => (c.match(/-/g) || []).length < 3); // 도면번호 제외
     if (candidates.length > 0) {
       candidates.sort((a, b) => b.length - a.length);
-      title = candidates[0].toUpperCase();
+      title = cleanTitle(candidates[0].toUpperCase());
     }
   }
 
@@ -217,7 +261,7 @@ function parseTitleBlock(fullText) {
 }
 
 /**
- * 메인 파싱 함수: Tesseract recognize() 결과를 받아 구조화된 데이터 반환
+ * 메인 파싱 함수
  */
 export function parseOCRResult(ocrData) {
   const { data } = ocrData;
@@ -225,7 +269,7 @@ export function parseOCRResult(ocrData) {
   const words = [];
   if (data.words) {
     for (const word of data.words) {
-      if (word.confidence > 30 && word.text.trim()) {
+      if (word.confidence > 20 && word.text.trim()) {
         words.push({ text: word.text.trim(), bbox: word.bbox });
       }
     }
@@ -234,36 +278,15 @@ export function parseOCRResult(ocrData) {
   const rows = groupWordsIntoRows(words);
   const headerIndex = findHeaderRowIndex(rows);
 
-  let columns = [];
   let parts = [];
 
   if (headerIndex >= 0) {
-    columns = parseHeaderColumns(rows[headerIndex]);
+    const columns = parseHeaderColumns(rows[headerIndex]);
 
-    // 한국 도면: 헤더가 파트리스트 아래에 위치 → 헤더 위쪽을 파싱
-    // 표준 도면: 헤더가 위, 데이터가 아래 → 헤더 아래쪽을 파싱
-    const rowsAbove = headerIndex;
-    const rowsBelow = rows.length - headerIndex - 1;
-    const partsAreAbove = rowsAbove > rowsBelow;
-
-    const startIdx = partsAreAbove ? 0 : headerIndex + 1;
-    const endIdx   = partsAreAbove ? headerIndex : rows.length;
-
-    let partSeq = 1;
-    for (let i = startIdx; i < endIdx; i++) {
-      const rowText = rowToText(rows[i]);
-      if (!rowText.trim()) continue;
-      if (/approved|checked|drawn|date|scale|sheet/i.test(rowText)) continue;
-
-      const part = parseDataRow(rows[i], columns, partSeq);
-      if (part.partNumber || part.description) {
-        parts.push(part);
-        partSeq++;
-      }
-    }
-
-    // seq 번호 오름차순 정렬
-    parts.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+    // 헤더 위/아래 양방향 시도 → 파트가 더 많은 방향 선택
+    const partsAbove = extractPartsFromRange(rows, 0, headerIndex, columns);
+    const partsBelow = extractPartsFromRange(rows, headerIndex + 1, rows.length, columns);
+    parts = partsAbove.length >= partsBelow.length ? partsAbove : partsBelow;
   }
 
   const titleInfo = parseTitleBlock(data.text || '');
