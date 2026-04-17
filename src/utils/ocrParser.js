@@ -261,15 +261,50 @@ function parseTitleBlock(fullText) {
 }
 
 /**
+ * raw text 줄 단위 파싱 폴백
+ * "1 RM-LC01-FC23350 PANEL, A5052P-H32 1 EA" 같은 패턴 감지
+ */
+function extractPartsFromRawText(rawText) {
+  const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+  const parts = [];
+
+  for (const line of lines) {
+    // 숫자로 시작하고 하이픈 포함 파트번호가 이어지는 줄
+    const m = line.match(
+      /^(\d{1,3})\s+([A-Z0-9][A-Z0-9\-./]{3,})\s+(.+?)\s{2,}([A-Z0-9\-./]{3,})\s+(\d+\.?\d*)\s+([A-Z]{1,5})\s*(.*)$/i
+    );
+    if (m) {
+      parts.push({
+        seq: parseInt(m[1]),
+        partNumber: m[2].trim().toUpperCase(),
+        description: m[3].trim(),
+        material: m[4].trim().toUpperCase(),
+        qty: parseFloat(m[5]) || 1,
+        unit: m[6].trim().toUpperCase(),
+        specRemark: (m[7] || '').trim(),
+      });
+    }
+  }
+
+  parts.sort((a, b) => a.seq - b.seq);
+  return parts;
+}
+
+/**
  * 메인 파싱 함수
  */
 export function parseOCRResult(ocrData) {
   const { data } = ocrData;
 
+  // ── 디버그: 콘솔에 raw 텍스트 출력 ──
+  console.group('[OCR Parser Debug]');
+  console.log('Raw text:\n', data.text);
+  console.log('Word count:', data.words?.length);
+
   const words = [];
   if (data.words) {
     for (const word of data.words) {
-      if (word.confidence > 20 && word.text.trim()) {
+      if (word.confidence > 10 && word.text.trim()) {
         words.push({ text: word.text.trim(), bbox: word.bbox });
       }
     }
@@ -277,19 +312,33 @@ export function parseOCRResult(ocrData) {
 
   const rows = groupWordsIntoRows(words);
   const headerIndex = findHeaderRowIndex(rows);
+  console.log('Word rows:', rows.length, '| Header index:', headerIndex);
+  if (headerIndex >= 0) {
+    console.log('Header row text:', rowToText(rows[headerIndex]));
+  }
 
   let parts = [];
 
   if (headerIndex >= 0) {
     const columns = parseHeaderColumns(rows[headerIndex]);
+    console.log('Detected columns:', columns.map((c) => c.key));
 
-    // 헤더 위/아래 양방향 시도 → 파트가 더 많은 방향 선택
     const partsAbove = extractPartsFromRange(rows, 0, headerIndex, columns);
     const partsBelow = extractPartsFromRange(rows, headerIndex + 1, rows.length, columns);
+    console.log('Parts above header:', partsAbove.length, '| Parts below header:', partsBelow.length);
     parts = partsAbove.length >= partsBelow.length ? partsAbove : partsBelow;
   }
 
+  // 좌표 기반 파싱이 실패하면 raw text 직접 파싱
+  if (parts.length === 0 && data.text) {
+    console.log('Coordinate parsing failed → trying raw text parsing');
+    parts = extractPartsFromRawText(data.text);
+    console.log('Raw text parts found:', parts.length);
+  }
+
   const titleInfo = parseTitleBlock(data.text || '');
+  console.log('Title info:', titleInfo);
+  console.groupEnd();
 
   return {
     drawingNumber: titleInfo.drawingNumber,
