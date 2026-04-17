@@ -72,6 +72,43 @@ function reducer(state, action) {
       return { ...state, bomRows: recalculate(updated, state.project.totalQty) };
     }
 
+    // 같은 부모 도면 내에서 파트 순서 변경 (드래그 정렬)
+    case 'REORDER_PART': {
+      const { drawingId, fromSeq, toSeq } = action;
+      if (!drawingId || fromSeq === toSeq) return state;
+
+      const newDrawings = state.drawings.map((d) => {
+        if (d.id !== drawingId) return d;
+        const fromIdx = d.parts.findIndex((p) => p.seq === fromSeq);
+        const toIdx = d.parts.findIndex((p) => p.seq === toSeq);
+        if (fromIdx === -1 || toIdx === -1) return d;
+
+        const newParts = [...d.parts];
+        const [moved] = newParts.splice(fromIdx, 1);
+        newParts.splice(toIdx, 0, moved);
+        return { ...d, parts: newParts.map((p, i) => ({ ...p, seq: i + 1 })) };
+      });
+
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
+    // 파트의 부품번호를 다른 도면번호로 수동 연결
+    case 'LINK_PART_TO_DRAWING': {
+      const { drawingId, partSeq, targetDrawingNumber } = action;
+      const newDrawings = state.drawings.map((d) => {
+        if (d.id !== drawingId) return d;
+        return {
+          ...d,
+          parts: d.parts.map((p) =>
+            p.seq === partSeq ? { ...p, partNumber: targetDrawingNumber } : p
+          ),
+        };
+      });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
     case 'CLEAR_CIRCULAR_WARNINGS':
       return { ...state, circularWarnings: [] };
 
@@ -80,41 +117,32 @@ function reducer(state, action) {
   }
 }
 
-// ── Provider ─────────────────────────────────────────────────
+// ── Provider ──────────────────────────────────────────────────
 
 export function BOMProvider({ children, projectMeta }) {
   const [state, dispatch] = useReducer(reducer, makeInitialState(projectMeta));
   const [isLoading, setIsLoading] = useState(!!projectMeta?._load);
 
-  // 기존 프로젝트 불러오기 (mount 시 1회)
   useEffect(() => {
-    if (!projectMeta?._load) {
-      setIsLoading(false);
-      return;
-    }
-    const id = projectMeta.id;
-    loadProject(id).then((data) => {
-      if (data) {
-        dispatch({ type: 'LOAD_PROJECT', data });
-      }
+    if (!projectMeta?._load) { setIsLoading(false); return; }
+    loadProject(projectMeta.id).then((data) => {
+      if (data) dispatch({ type: 'LOAD_PROJECT', data });
       setIsLoading(false);
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 상태 변화 시 IndexedDB 자동 저장 (1.5초 디바운스)
+  // 자동 저장 (1.5초 디바운스)
   useEffect(() => {
     if (isLoading) return;
     const timer = setTimeout(() => {
-      saveProject(state).catch((err) =>
-        console.error('IndexedDB 저장 실패:', err)
-      );
+      saveProject(state).catch((err) => console.error('저장 실패:', err));
     }, 1500);
     return () => clearTimeout(timer);
   }, [state, isLoading]);
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-100">
+      <div className="flex items-center justify-center h-screen bg-gray-100 dark:bg-gray-900">
         <div className="text-center text-gray-500">
           <p className="text-2xl mb-2 animate-pulse">⚙️</p>
           <p className="text-sm">프로젝트 불러오는 중...</p>
