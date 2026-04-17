@@ -1,12 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useBOM } from '../context/BOMContext';
 import DrawingUpload from './DrawingUpload';
-import { parseOCRResult } from '../utils/ocrParser';
 
-const EMPTY_PART = () => ({
+const EMPTY_PART = (seq = 1) => ({
   id: uuidv4(),
-  seq: 1,
+  seq,
   partNumber: '',
   description: '',
   material: '',
@@ -15,14 +14,31 @@ const EMPTY_PART = () => ({
   specRemark: '',
 });
 
-export default function OCREditor({ onDrawingAdded }) {
-  const { dispatch } = useBOM();
+export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel }) {
+  const { state, dispatch } = useBOM();
+  const { drawings } = state;
 
   const [drawingNumber, setDrawingNumber] = useState('');
   const [title, setTitle] = useState('');
   const [rev, setRev] = useState('');
   const [parts, setParts] = useState([EMPTY_PART()]);
   const [rawText, setRawText] = useState('');
+  const isEditMode = !!editDrawing;
+
+  // 재등록 모드: editDrawing prop으로 폼을 채움
+  useEffect(() => {
+    if (editDrawing) {
+      setDrawingNumber(editDrawing.drawingNumber || '');
+      setTitle(editDrawing.title || '');
+      setRev(editDrawing.rev || '');
+      setRawText(editDrawing.rawOcr || '');
+      setParts(
+        editDrawing.parts.length > 0
+          ? editDrawing.parts.map((p) => ({ ...p, id: uuidv4() }))
+          : [EMPTY_PART()]
+      );
+    }
+  }, [editDrawing]);
 
   function handleOCRComplete(parsed) {
     setDrawingNumber(parsed.drawingNumber || '');
@@ -42,60 +58,39 @@ export default function OCREditor({ onDrawingAdded }) {
 
   function addRow() {
     setParts((prev) => {
-      const maxSeq = prev.reduce((m, p) => Math.max(m, p.seq), 0);
-      return [...prev, { ...EMPTY_PART(), seq: maxSeq + 1 }];
+      const maxSeq = prev.reduce((m, p) => Math.max(m, Number(p.seq) || 0), 0);
+      return [...prev, EMPTY_PART(maxSeq + 1)];
     });
   }
 
   function deleteRow(id) {
-    setParts((prev) => prev.filter((p) => p.id !== id));
+    setParts((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      return next.length > 0 ? next : [EMPTY_PART()];
+    });
   }
 
-  // Tab 키로 다음 셀 이동
   function handleKeyDown(e, rowIndex, colIndex, totalCols) {
     if (e.key === 'Tab') {
       e.preventDefault();
       const nextCol = colIndex + 1;
       const nextRow = rowIndex + (nextCol >= totalCols ? 1 : 0);
       const nextColActual = nextCol % totalCols;
-
-      const selector = `[data-row="${nextRow}"][data-col="${nextColActual}"]`;
-      const el = document.querySelector(selector);
-      if (el) el.focus();
-      else if (nextRow >= parts.length) addRow();
+      const el = document.querySelector(`[data-row="${nextRow}"][data-col="${nextColActual}"]`);
+      if (el) {
+        el.focus();
+      } else if (nextRow >= parts.length) {
+        addRow();
+        // 새 행이 렌더된 후 포커스 (다음 틱)
+        setTimeout(() => {
+          const newEl = document.querySelector(`[data-row="${nextRow}"][data-col="0"]`);
+          if (newEl) newEl.focus();
+        }, 50);
+      }
     }
   }
 
-  function addToBoM() {
-    if (!drawingNumber.trim()) {
-      alert('도면번호를 입력하세요.');
-      return;
-    }
-
-    const drawing = {
-      id: uuidv4(),
-      drawingNumber: drawingNumber.trim(),
-      title: title.trim(),
-      rev: rev.trim(),
-      parts: parts
-        .filter((p) => p.partNumber || p.description)
-        .map((p, i) => ({
-          seq: p.seq || i + 1,
-          partNumber: p.partNumber || '',
-          description: p.description || '',
-          material: p.material || '',
-          qty: parseFloat(p.qty) || 1,
-          unit: p.unit || 'EA',
-          specRemark: p.specRemark || '',
-        })),
-      rawOcr: rawText,
-      createdAt: new Date().toISOString(),
-    };
-
-    dispatch({ type: 'ADD_DRAWING', drawing });
-    onDrawingAdded && onDrawingAdded();
-
-    // 폼 초기화
+  function resetForm() {
     setDrawingNumber('');
     setTitle('');
     setRev('');
@@ -103,12 +98,73 @@ export default function OCREditor({ onDrawingAdded }) {
     setRawText('');
   }
 
+  function addToBOM() {
+    const trimmed = drawingNumber.trim();
+    if (!trimmed) {
+      alert('도면번호를 입력하세요.');
+      return;
+    }
+
+    // 중복 도면번호 감지 (재등록 모드가 아닌 경우만)
+    const existing = drawings.find((d) => d.drawingNumber === trimmed);
+    if (existing && !isEditMode) {
+      const ok = confirm(
+        `"${trimmed}" 도면이 이미 등록되어 있습니다.\n기존 데이터를 덮어쓰시겠습니까?`
+      );
+      if (!ok) return;
+    }
+
+    const drawing = {
+      id: editDrawing ? editDrawing.id : uuidv4(),
+      drawingNumber: trimmed,
+      title: title.trim(),
+      rev: rev.trim(),
+      parts: parts
+        .filter((p) => p.partNumber || p.description)
+        .map((p, i) => ({
+          seq: Number(p.seq) || i + 1,
+          partNumber: (p.partNumber || '').trim(),
+          description: (p.description || '').trim(),
+          material: (p.material || '').trim(),
+          qty: parseFloat(p.qty) || 1,
+          unit: (p.unit || 'EA').trim(),
+          specRemark: (p.specRemark || '').trim(),
+        })),
+      rawOcr: rawText,
+      createdAt: editDrawing ? editDrawing.createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    dispatch({ type: 'ADD_DRAWING', drawing });
+    onDrawingAdded && onDrawingAdded();
+    resetForm();
+    if (isEditMode) onEditCancel && onEditCancel();
+  }
+
   const COLS = ['seq', 'partNumber', 'description', 'material', 'qty', 'unit', 'specRemark'];
-  const COL_LABELS = ['순번', 'PART NO.', '품명', '재질', '수량', '단위', 'SPEC & REMARK'];
-  const COL_WIDTHS = ['w-12', 'w-40', 'w-48', 'w-28', 'w-14', 'w-16', 'w-36'];
+  const COL_LABELS = ['No', 'PART NO.', '품명', '재질', '수량', '단위', 'SPEC & REMARK'];
+  const COL_WIDTHS = ['w-12', 'w-40', 'w-44', 'w-28', 'w-14', 'w-16', 'w-36'];
 
   return (
     <div className="flex flex-col gap-4 h-full">
+      {/* 재등록 모드 배너 */}
+      {isEditMode && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-amber-800">
+              수정 모드: {editDrawing.drawingNumber}
+            </p>
+            <p className="text-xs text-amber-600">내용을 수정 후 [BOM에 저장]을 누르세요.</p>
+          </div>
+          <button
+            onClick={() => { resetForm(); onEditCancel && onEditCancel(); }}
+            className="text-amber-500 hover:text-amber-700 text-sm"
+          >
+            ✕ 취소
+          </button>
+        </div>
+      )}
+
       {/* 이미지 업로드 */}
       <DrawingUpload onOCRComplete={handleOCRComplete} />
 
@@ -137,7 +193,7 @@ export default function OCREditor({ onDrawingAdded }) {
           <div>
             <label className="text-xs text-gray-500 block mb-1">REV</label>
             <input
-              className="w-20 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+              className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
               value={rev}
               onChange={(e) => setRev(e.target.value)}
               placeholder="A"
@@ -147,9 +203,11 @@ export default function OCREditor({ onDrawingAdded }) {
       </div>
 
       {/* 파트리스트 편집 테이블 */}
-      <div className="bg-white border border-gray-200 rounded-lg flex flex-col flex-1 overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden" style={{ minHeight: 200 }}>
         <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-700">파트리스트</h3>
+          <h3 className="text-sm font-bold text-gray-700">
+            파트리스트 <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
+          </h3>
           <span className="text-xs text-gray-400">Tab 키로 다음 셀 이동</span>
         </div>
 
@@ -172,11 +230,11 @@ export default function OCREditor({ onDrawingAdded }) {
               {parts.map((part, rowIdx) => (
                 <tr key={part.id} className="border-b border-gray-100 hover:bg-blue-50">
                   {COLS.map((col, colIdx) => (
-                    <td key={col} className="px-1 py-1">
+                    <td key={col} className="px-1 py-0.5">
                       <input
                         data-row={rowIdx}
                         data-col={colIdx}
-                        className={`w-full border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0.5 bg-transparent focus:bg-white ${
+                        className={`w-full border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0.5 bg-transparent focus:bg-white text-xs ${
                           col === 'seq' ? 'text-center' : ''
                         }`}
                         value={part[col] ?? ''}
@@ -187,7 +245,7 @@ export default function OCREditor({ onDrawingAdded }) {
                       />
                     </td>
                   ))}
-                  <td className="px-1 py-1 text-center">
+                  <td className="px-1 py-0.5 text-center">
                     <button
                       onClick={() => deleteRow(part.id)}
                       className="text-red-400 hover:text-red-600 text-xs"
@@ -212,13 +270,23 @@ export default function OCREditor({ onDrawingAdded }) {
         </div>
       </div>
 
-      {/* BOM에 추가 버튼 */}
-      <button
-        onClick={addToBoM}
-        className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg text-sm shadow transition-colors"
-      >
-        BOM에 추가
-      </button>
+      {/* BOM에 추가/저장 버튼 */}
+      <div className="flex gap-2">
+        {isEditMode && (
+          <button
+            onClick={() => { resetForm(); onEditCancel && onEditCancel(); }}
+            className="px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 rounded-lg text-sm"
+          >
+            취소
+          </button>
+        )}
+        <button
+          onClick={addToBOM}
+          className="flex-1 bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg text-sm shadow transition-colors"
+        >
+          {isEditMode ? 'BOM에 저장 (수정)' : 'BOM에 추가'}
+        </button>
+      </div>
     </div>
   );
 }

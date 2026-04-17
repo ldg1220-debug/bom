@@ -1,6 +1,6 @@
 import { createContext, useContext, useReducer } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { buildBOMRows } from '../utils/bomMapper';
+import { buildBOMRows, detectCircularReferences } from '../utils/bomMapper';
 import { recalculate } from '../utils/calculations';
 
 const BOMContext = createContext(null);
@@ -14,15 +14,23 @@ const initialState = {
   },
   drawings: [],
   bomRows: [],
+  circularWarnings: [], // 순환 참조 경고 메시지 목록
 };
+
+function rebuild(drawings, totalQty) {
+  const warnings = detectCircularReferences(drawings);
+  const rows = buildBOMRows(drawings);
+  const finalRows = recalculate(rows, totalQty);
+  return { finalRows, warnings };
+}
 
 function reducer(state, action) {
   switch (action.type) {
     case 'SET_PROJECT_INFO': {
-      return {
-        ...state,
-        project: { ...state.project, ...action.payload },
-      };
+      const newProject = { ...state.project, ...action.payload };
+      // totalQty 변경 시 소요량 재계산
+      const finalRows = recalculate(state.bomRows, newProject.totalQty);
+      return { ...state, project: newProject, bomRows: finalRows };
     }
 
     case 'ADD_DRAWING': {
@@ -32,24 +40,21 @@ function reducer(state, action) {
       );
       let newDrawings;
       if (existingIndex >= 0) {
+        // 기존 id 유지하면서 내용 덮어쓰기
         newDrawings = state.drawings.map((d, i) =>
-          i === existingIndex ? drawing : d
+          i === existingIndex ? { ...drawing, id: d.id } : d
         );
       } else {
         newDrawings = [...state.drawings, drawing];
       }
-      const newBomRows = buildBOMRows(newDrawings);
-      const finalRows = recalculate(newBomRows, state.project.totalQty);
-      return { ...state, drawings: newDrawings, bomRows: finalRows };
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
     }
 
     case 'DELETE_DRAWING': {
-      const newDrawings = state.drawings.filter(
-        (d) => d.id !== action.drawingId
-      );
-      const newBomRows = buildBOMRows(newDrawings);
-      const finalRows = recalculate(newBomRows, state.project.totalQty);
-      return { ...state, drawings: newDrawings, bomRows: finalRows };
+      const newDrawings = state.drawings.filter((d) => d.id !== action.drawingId);
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
     }
 
     case 'UPDATE_BOM_ROW': {
@@ -60,13 +65,12 @@ function reducer(state, action) {
       return { ...state, bomRows: finalRows };
     }
 
-    case 'RECALCULATE': {
-      const finalRows = recalculate(state.bomRows, state.project.totalQty);
-      return { ...state, bomRows: finalRows };
+    case 'CLEAR_CIRCULAR_WARNINGS': {
+      return { ...state, circularWarnings: [] };
     }
 
     case 'IMPORT_PROJECT': {
-      return { ...action.project };
+      return { ...initialState, ...action.project };
     }
 
     default:
