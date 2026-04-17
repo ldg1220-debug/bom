@@ -1,6 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Tesseract from 'tesseract.js';
 import { parseOCRResult } from '../utils/ocrParser';
+import { extractBOMWithClaude } from '../utils/visionOCR';
+
+const STORAGE_KEY = 'anthropic_api_key';
 
 /**
  * 이미지에서 긴 수평/수직 직선(표 테두리)을 흰색으로 지워 OCR 오독 방지
@@ -106,13 +109,38 @@ async function preprocessImageForOCR(file) {
 
 export default function DrawingUpload({ onOCRComplete }) {
   const [imageUrl, setImageUrl] = useState(null);
+  const [currentFile, setCurrentFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [ocrStatus, setOcrStatus] = useState('idle');
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrMessage, setOcrMessage] = useState('');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || '');
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [keyDraft, setKeyDraft] = useState('');
   const fileInputRef = useRef(null);
   const dropRef = useRef(null);
 
+  // ── Claude Vision AI 인식 ──────────────────────────────────────
+  const processWithClaude = useCallback(async (file) => {
+    const key = localStorage.getItem(STORAGE_KEY);
+    if (!key) { setShowKeyInput(true); return; }
+
+    setOcrStatus('processing');
+    setOcrProgress(0);
+    setOcrMessage('Claude AI로 분석 중...');
+    try {
+      const parsed = await extractBOMWithClaude(file, key);
+      setOcrStatus('done');
+      setOcrMessage('AI 인식 완료');
+      onOCRComplete({ ...parsed, rawText: parsed.rawText || '' });
+    } catch (err) {
+      console.error('Claude Vision error:', err);
+      setOcrStatus('error');
+      setOcrMessage('AI 오류: ' + err.message);
+    }
+  }, [onOCRComplete]);
+
+  // ── Tesseract OCR 인식 ─────────────────────────────────────────
   const processImage = useCallback(async (file) => {
     if (!file || !file.type.startsWith('image/')) {
       alert('이미지 파일만 업로드 가능합니다.');
@@ -121,6 +149,7 @@ export default function DrawingUpload({ onOCRComplete }) {
 
     const url = URL.createObjectURL(file);
     setImageUrl(url);
+    setCurrentFile(file);
     setOcrStatus('processing');
     setOcrProgress(0);
     setOcrMessage('이미지 전처리 중...');
@@ -160,7 +189,7 @@ export default function DrawingUpload({ onOCRComplete }) {
       for (const item of items) {
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
-          if (file) processImage(file);
+          if (file) { setCurrentFile(file); processImage(file); }
           break;
         }
       }
@@ -175,16 +204,27 @@ export default function DrawingUpload({ onOCRComplete }) {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) processImage(file);
+    if (file) { setCurrentFile(file); processImage(file); }
   }
   function handleFileSelect(e) {
     const file = e.target.files[0];
-    if (file) processImage(file);
+    if (file) { setCurrentFile(file); processImage(file); }
     e.target.value = '';
   }
+  function saveApiKey() {
+    const trimmed = keyDraft.trim();
+    if (!trimmed) return;
+    localStorage.setItem(STORAGE_KEY, trimmed);
+    setApiKey(trimmed);
+    setShowKeyInput(false);
+    setKeyDraft('');
+    if (currentFile) processWithClaude(currentFile);
+  }
+
   function clearImage() {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
     setImageUrl(null);
+    setCurrentFile(null);
     setOcrStatus('idle');
     setOcrProgress(0);
     setOcrMessage('');
@@ -223,21 +263,75 @@ export default function DrawingUpload({ onOCRComplete }) {
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
 
+      {/* AI 인식 버튼 (이미지가 있고 idle/done/error 상태일 때) */}
+      {currentFile && ocrStatus !== 'processing' && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => processWithClaude(currentFile)}
+            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-2 rounded-lg flex items-center justify-center gap-1.5"
+          >
+            ✨ Claude AI로 재인식
+          </button>
+          <button
+            onClick={() => processImage(currentFile)}
+            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm px-3 py-2 rounded-lg"
+          >
+            OCR 재인식
+          </button>
+          <button
+            onClick={() => { setShowKeyInput(true); setKeyDraft(apiKey); }}
+            className="shrink-0 text-gray-400 hover:text-gray-600 text-xs px-2 py-2"
+            title="API 키 설정"
+          >
+            🔑
+          </button>
+        </div>
+      )}
+
+      {/* API 키 입력 모달 */}
+      {showKeyInput && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex flex-col gap-2">
+          <p className="text-xs text-purple-800 font-medium">Anthropic API 키 입력</p>
+          <p className="text-xs text-purple-600">
+            키는 브라우저 localStorage에만 저장되며 외부로 전송되지 않습니다.
+          </p>
+          <input
+            type="password"
+            className="w-full border border-purple-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-purple-500"
+            placeholder="sk-ant-..."
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && saveApiKey()}
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button onClick={saveApiKey} className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-sm py-1.5 rounded">
+              저장 후 인식
+            </button>
+            <button onClick={() => setShowKeyInput(false)} className="px-3 bg-gray-200 hover:bg-gray-300 text-gray-600 text-sm py-1.5 rounded">
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
       {ocrStatus === 'processing' && (
         <div className="bg-blue-50 border border-blue-200 rounded p-3">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-sm text-blue-700 font-medium">OCR 처리 중...</span>
-            <span className="text-sm text-blue-600">{ocrProgress}%</span>
+            <span className="text-sm text-blue-700 font-medium">인식 중...</span>
+            {ocrProgress > 0 && <span className="text-sm text-blue-600">{ocrProgress}%</span>}
           </div>
-          <div className="w-full bg-blue-200 rounded-full h-2">
-            <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${ocrProgress}%` }} />
-          </div>
+          {ocrProgress > 0 && (
+            <div className="w-full bg-blue-200 rounded-full h-2">
+              <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${ocrProgress}%` }} />
+            </div>
+          )}
           <p className="text-xs text-blue-500 mt-1">{ocrMessage}</p>
         </div>
       )}
       {ocrStatus === 'done' && (
         <div className="bg-green-50 border border-green-200 rounded p-2 text-sm text-green-700">
-          ✅ OCR 완료 — 아래 내용을 확인 및 수정 후 [BOM에 추가]를 누르세요.
+          ✅ {ocrMessage} — 아래 내용을 확인 및 수정 후 [BOM에 추가]를 누르세요.
         </div>
       )}
       {ocrStatus === 'error' && (
