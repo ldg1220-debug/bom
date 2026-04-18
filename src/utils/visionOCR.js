@@ -40,53 +40,71 @@ const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트
   ]
 }`;
 
+// 우선순위 순 모델 목록 — 앞에서부터 시도
+const MODELS = [
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-pro',
+];
+
 export async function extractBOMWithGemini(imageBlob, apiKey) {
   const dataUrl = await blobToBase64(imageBlob);
   const base64Data = dataUrl.split(',')[1];
   const mimeType = imageBlob.type || 'image/png';
 
-  const url = `/api/gemini/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { inlineData: { mimeType, data: base64Data } },
-          { text: PROMPT },
-        ],
-      }],
-      generationConfig: { temperature: 0, maxOutputTokens: 4096 },
-      // gemini-1.5-flash: 무료 tier 광범위 지원 (분당 15회, 일 1500회)
-    }),
+  const body = JSON.stringify({
+    contents: [{
+      parts: [
+        { inlineData: { mimeType, data: base64Data } },
+        { text: PROMPT },
+      ],
+    }],
+    generationConfig: { temperature: 0, maxOutputTokens: 4096 },
   });
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `API 오류 (${response.status})`);
+  let lastErr = null;
+  for (const model of MODELS) {
+    const url = `/api/gemini/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const msg = err.error?.message || `API 오류 (${response.status})`;
+      // 404(모델 없음)는 다음 모델로, 그 외 에러는 즉시 throw
+      if (response.status === 404) { lastErr = new Error(msg); continue; }
+      throw new Error(msg);
+    }
+
+    const result = await response.json();
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('응답에서 JSON을 찾을 수 없습니다.\n' + text.slice(0, 200));
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      drawingNumber: parsed.drawingNumber || '',
+      title: parsed.title || '',
+      rev: parsed.rev || '',
+      parts: (parsed.parts || []).map((p, i) => ({
+        seq: Number(p.seq) || i + 1,
+        partNumber: String(p.partNumber || '').trim(),
+        description: String(p.description || '').trim(),
+        material: String(p.material || '').trim(),
+        qty: parseFloat(p.qty) || 1,
+        unit: String(p.unit || 'EA').trim().toUpperCase(),
+        specRemark: String(p.specRemark || '').trim(),
+      })),
+      rawText: text,
+    };
   }
 
-  const result = await response.json();
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('응답에서 JSON을 찾을 수 없습니다.\n' + text.slice(0, 200));
-
-  const parsed = JSON.parse(jsonMatch[0]);
-  return {
-    drawingNumber: parsed.drawingNumber || '',
-    title: parsed.title || '',
-    rev: parsed.rev || '',
-    parts: (parsed.parts || []).map((p, i) => ({
-      seq: Number(p.seq) || i + 1,
-      partNumber: String(p.partNumber || '').trim(),
-      description: String(p.description || '').trim(),
-      material: String(p.material || '').trim(),
-      qty: parseFloat(p.qty) || 1,
-      unit: String(p.unit || 'EA').trim().toUpperCase(),
-      specRemark: String(p.specRemark || '').trim(),
-    })),
-    rawText: text,
-  };
+  // 모든 모델 실패
+  throw lastErr || new Error('사용 가능한 Gemini 모델을 찾을 수 없습니다.');
 }
