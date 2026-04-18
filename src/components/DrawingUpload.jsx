@@ -6,6 +6,30 @@ import { extractBOMWithGemini } from '../utils/visionOCR';
 const STORAGE_KEY = 'google_ai_api_key';
 
 /**
+ * Otsu 이진화: 그레이스케일 히스토그램에서 최적 임계값을 자동 산출 → 순수 흑백 출력
+ * 선형 대비 강화보다 OCR 정확도가 현저히 높음
+ */
+function otsuThreshold(gray, total) {
+  const hist = new Float64Array(256);
+  for (let i = 0; i < total; i++) hist[gray[i]]++;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, max = 0, thresh = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (!wB) continue;
+    const wF = total - wB;
+    if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) ** 2;
+    if (between > max) { max = between; thresh = t; }
+  }
+  return Math.max(80, Math.min(220, thresh));
+}
+
+/**
  * 이미지에서 긴 수평/수직 직선(표 테두리)을 흰색으로 지워 OCR 오독 방지
  */
 function removeBorderLines(d, w, h) {
@@ -60,7 +84,11 @@ function removeBorderLines(d, w, h) {
 }
 
 /**
- * OCR 전처리: 업스케일 + 그레이스케일 + 대비 강화 + 테두리 선 제거
+ * OCR 전처리 파이프라인:
+ *  1. 3000px 업스케일 (2000 → 3000: 세밀한 문자 보존)
+ *  2. 그레이스케일 변환
+ *  3. 표 테두리 직선 제거 (OCR 오독 방지)
+ *  4. Otsu 이진화 → 순수 흑백 (선형 대비보다 OCR 정확도 대폭 향상)
  */
 async function preprocessImageForOCR(file) {
   return new Promise((resolve, reject) => {
@@ -68,14 +96,14 @@ async function preprocessImageForOCR(file) {
     const url = URL.createObjectURL(file);
     img.onload = () => {
       try {
-        const TARGET_WIDTH = 2000;
+        const TARGET_WIDTH = 3000;
         const scale = img.width < TARGET_WIDTH ? TARGET_WIDTH / img.width : 1;
         const w = Math.round(img.width * scale);
         const h = Math.round(img.height * scale);
+        const total = w * h;
 
         const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
+        canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, w, h);
@@ -84,15 +112,26 @@ async function preprocessImageForOCR(file) {
         const imageData = ctx.getImageData(0, 0, w, h);
         const d = imageData.data;
 
-        // 그레이스케일 + 대비 강화
-        for (let i = 0; i < d.length; i += 4) {
-          const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-          const v = Math.min(255, Math.max(0, 1.6 * (gray - 128) + 128));
-          d[i] = d[i + 1] = d[i + 2] = v;
+        // 1) 그레이스케일 변환
+        const gray = new Uint8Array(total);
+        for (let i = 0; i < total; i++) {
+          gray[i] = Math.round(0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]);
+          d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = gray[i];
+          d[i * 4 + 3] = 255;
         }
 
-        // 표 테두리 직선 제거
+        // 2) 표 테두리 직선 제거
         removeBorderLines(d, w, h);
+
+        // 3) 테두리 제거 결과를 gray 배열에 동기화
+        for (let i = 0; i < total; i++) gray[i] = d[i * 4];
+
+        // 4) Otsu 이진화 → 순수 흑백
+        const thresh = otsuThreshold(gray, total);
+        for (let i = 0; i < total; i++) {
+          const v = gray[i] < thresh ? 0 : 255;
+          d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
+        }
 
         ctx.putImageData(imageData, 0, 0);
         URL.revokeObjectURL(url);
@@ -202,7 +241,8 @@ export default function DrawingUpload({ onOCRComplete }) {
             setOcrMessage(m.status);
           }
         },
-        tessedit_pageseg_mode: '3',
+        tessedit_pageseg_mode: '6',    // uniform text block — 파트리스트 표에 최적
+        tessedit_ocr_engine_mode: '1', // LSTM 신경망 전용 (정확도 향상)
         preserve_interword_spaces: '1',
       });
 

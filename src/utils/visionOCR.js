@@ -40,6 +40,27 @@ const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트
   ]
 }`;
 
+// Electron IPC 또는 Vite 프록시를 통해 Gemini API 호출
+async function geminiFetch(path, body = null) {
+  if (typeof window !== 'undefined' && window.electronAPI?.isElectron) {
+    const url = `https://generativelanguage.googleapis.com${path}`;
+    const res = body !== null
+      ? await window.electronAPI.geminiPost(url, body)
+      : await window.electronAPI.geminiGet(url);
+    return {
+      ok: res.status >= 200 && res.status < 300,
+      status: res.status,
+      json: () => Promise.resolve(JSON.parse(res.body)),
+    };
+  }
+  // 브라우저: Vite 개발 프록시 사용
+  const proxyUrl = `/api/gemini${path}`;
+  if (body !== null) {
+    return fetch(proxyUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  }
+  return fetch(proxyUrl);
+}
+
 // 우선순위 순 초기 모델 목록
 const DEFAULT_MODELS = [
   'gemini-2.0-flash',
@@ -54,8 +75,7 @@ const DEFAULT_MODELS = [
 
 async function listGeminiModels(apiKey) {
   try {
-    const url = `/api/gemini/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url);
+    const res = await geminiFetch(`/v1beta/models?key=${encodeURIComponent(apiKey)}`);
     if (!res.ok) return [];
     const data = await res.json();
     return (data.models || [])
@@ -89,12 +109,10 @@ async function tryModels(models, body, apiKey) {
   let allNotFound = true;
 
   for (const model of models) {
-    const url = `/api/gemini/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
+    const response = await geminiFetch(
+      `/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      body
+    );
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));

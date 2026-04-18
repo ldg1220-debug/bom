@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
+  // Electron builds load files via file:// — needs relative base
+  base: process.env.ELECTRON_BUILD ? './' : '/',
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
