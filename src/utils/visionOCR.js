@@ -100,6 +100,7 @@ async function tryModels(models, body, apiKey) {
       const err = await response.json().catch(() => ({}));
       const msg = err.error?.message || `API 오류 (${response.status})`;
       if (response.status === 404) { lastErr = new Error(msg); continue; }
+      if (response.status === 503) { lastErr = new Error(msg); allNotFound = false; continue; }
       allNotFound = false;
       if (response.status === 429) {
         const retryMatch = msg.match(/retry in ([\d.]+)s/i);
@@ -149,7 +150,12 @@ export async function extractBOMWithGemini(imageBlob, apiKey) {
   }
 
   const lastErr = (result1 && result1.lastErr) || null;
-  if (lastErr) throw lastErr;
+  // 503 등 일시적 서버 오류 → 30초 재시도
+  if (lastErr) {
+    const e = new Error(lastErr.message);
+    e.retrySec = 30;
+    throw e;
+  }
   throw new Error(
     discovered.length === 0
       ? 'ListModels 조회 실패 — API 키가 유효한지, Generative Language API가 활성화되어 있는지 확인하세요.'
