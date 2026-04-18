@@ -139,20 +139,21 @@ export default function DrawingUpload({ onOCRComplete }) {
       onOCRComplete({ ...parsed, rawText: parsed.rawText || '' });
     } catch (err) {
       console.error('Claude Vision error:', err);
-      const isAuthError = err.message.toLowerCase().includes('auth') ||
-                          err.message.toLowerCase().includes('401') ||
-                          err.message.toLowerCase().includes('invalid') ||
-                          err.message.toLowerCase().includes('unauthorized');
+      const msg = err.message;
+      const isAuthError = /auth|401|invalid|unauthorized/i.test(msg);
+      const isBillingError = /credit|billing|balance|payment/i.test(msg);
       if (isAuthError) {
-        // 잘못된 키 삭제 후 입력창 표시
         localStorage.removeItem(STORAGE_KEY);
         setApiKey('');
         setKeyDraft('');
         setShowKeyInput(true);
         setOcrStatus('idle');
+      } else if (isBillingError) {
+        setOcrStatus('error');
+        setOcrMessage('크레딧 부족 — console.anthropic.com/settings/billing 에서 충전하세요.');
       } else {
         setOcrStatus('error');
-        setOcrMessage('AI 오류: ' + err.message);
+        setOcrMessage('AI 오류: ' + msg);
       }
     }
   }, [onOCRComplete]);
