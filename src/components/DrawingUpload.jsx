@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import Tesseract from 'tesseract.js';
 import { parseOCRResult } from '../utils/ocrParser';
-import { extractBOMWithClaude } from '../utils/visionOCR';
+import { extractBOMWithGemini } from '../utils/visionOCR';
 
-const STORAGE_KEY = 'anthropic_api_key';
+const STORAGE_KEY = 'google_ai_api_key';
 
 /**
  * 이미지에서 긴 수평/수직 직선(표 테두리)을 흰색으로 지워 OCR 오독 방지
@@ -133,7 +133,7 @@ export default function DrawingUpload({ onOCRComplete }) {
     setOcrProgress(0);
     setOcrMessage('Claude AI로 분석 중...');
     try {
-      const parsed = await extractBOMWithClaude(file, key);
+      const parsed = await extractBOMWithGemini(file, key);
       setOcrStatus('done');
       setOcrMessage('AI 인식 완료');
       onOCRComplete({ ...parsed, rawText: parsed.rawText || '' });
@@ -288,7 +288,7 @@ export default function DrawingUpload({ onOCRComplete }) {
             onClick={() => processWithClaude(currentFile)}
             className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-2 rounded-lg flex items-center justify-center gap-1.5"
           >
-            ✨ Claude AI로 재인식
+            ✨ Gemini AI로 재인식
           </button>
           <button
             onClick={() => processImage(currentFile)}
@@ -311,14 +311,14 @@ export default function DrawingUpload({ onOCRComplete }) {
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex flex-col gap-2">
           <p className="text-xs text-purple-800 font-medium">Anthropic API 키 입력</p>
           <p className="text-xs text-purple-600">
-            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer"
-               className="underline">console.anthropic.com</a>에서 키를 발급받으세요.
-            키는 이 브라우저에만 저장되며 외부 서버로 전송되지 않습니다.
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer"
+               className="underline">aistudio.google.com/apikey</a>에서 무료로 발급받으세요.
+            키는 이 브라우저에만 저장됩니다.
           </p>
           <input
             type="password"
             className="w-full border border-purple-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-purple-500"
-            placeholder="sk-ant-..."
+            placeholder="AIza..."
             value={keyDraft}
             onChange={(e) => setKeyDraft(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && saveApiKey()}

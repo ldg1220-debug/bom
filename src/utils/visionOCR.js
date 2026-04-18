@@ -1,4 +1,4 @@
-/** Claude Vision API를 통한 BOM 구조화 추출 */
+/** Google Gemini Vision API를 통한 BOM 구조화 추출 */
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -40,34 +40,24 @@ const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트
   ]
 }`;
 
-export async function extractBOMWithClaude(imageBlob, apiKey) {
+export async function extractBOMWithGemini(imageBlob, apiKey) {
   const dataUrl = await blobToBase64(imageBlob);
   const base64Data = dataUrl.split(',')[1];
-  const mediaType = imageBlob.type || 'image/png';
+  const mimeType = imageBlob.type || 'image/png';
 
-  const response = await fetch('/api/anthropic/v1/messages', {
+  const url = `/api/gemini/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: base64Data },
-            },
-            { type: 'text', text: PROMPT },
-          ],
-        },
-      ],
+      contents: [{
+        parts: [
+          { inlineData: { mimeType, data: base64Data } },
+          { text: PROMPT },
+        ],
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 4096 },
     }),
   });
 
@@ -77,9 +67,8 @@ export async function extractBOMWithClaude(imageBlob, apiKey) {
   }
 
   const result = await response.json();
-  const text = result.content?.[0]?.text?.trim() || '';
+  const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
 
-  // JSON 파싱 (마크다운 코드블록 안에 있을 수도 있음)
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error('응답에서 JSON을 찾을 수 없습니다.\n' + text.slice(0, 200));
 
