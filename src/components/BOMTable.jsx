@@ -1,16 +1,13 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
 import { useBOM } from '../context/BOMContext';
 
-// ── 레벨별 배경색 (라이트/다크) ───────────────────────────────
+// ── 레벨별 배경색 (Lv1~8+) ───────────────────────────────────
+const LV_BG_LIGHT = ['', '#FFF9C4', '#C8E6C9', '#DBEAFE', '#EDE9FE', '#FCE7F3', '#FED7AA', '#CFFAFE'];
+const LV_BG_DARK  = ['', '#3B3600', '#0A2E10', '#0C1F3F', '#1E0F3F', '#3F0F24', '#3F1E00', '#0C2F33'];
+
 function getLevelBg(level, isDark) {
-  if (isDark) {
-    if (level === 2) return '#3B3600';
-    if (level === 3) return '#0A2E10';
-    return '';
-  }
-  if (level === 2) return '#FFF9C4';
-  if (level === 3) return '#C8E6C9';
-  return '';
+  const arr = isDark ? LV_BG_DARK : LV_BG_LIGHT;
+  return arr[level - 1] ?? (isDark ? '#1a2030' : '#F3F4F6');
 }
 
 // ── collapse 필터 (DFS 순서 기반) ───────────────────────────
@@ -178,7 +175,7 @@ function makeColDefs(totalQty) {
     { label: 'REV', key: 'rev', w: 44 },
     { label: 'NO.', key: 'no', w: 36, readOnly: true },
     { label: '자품번', key: 'childPart', w: 144, readOnly: true },
-    { label: '품명', key: 'description', w: 280 },
+    { label: '품명', key: 'description', w: 320 },
     { label: '재질', key: 'material', w: 88, readOnly: true },
     { label: '규격SPEC', key: 'spec', w: 88 },
     { label: 'T', key: 'sizeT', w: 44 },
@@ -263,7 +260,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
             if (displayRows[j].level < L) break;
             if (displayRows[j].level === L && displayRows[j].parentPart === row.parentPart) { isLast = false; break; }
           }
-          segments.push(isLast ? '└─ ' : '├─ ');
+          segments.push(isLast ? '└─' : '├─');
         } else {
           let current = row;
           while (current.level > lvl) {
@@ -278,7 +275,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
             if (displayRows[j].level < lvl) break;
             if (displayRows[j].level === lvl && displayRows[j].parentPart === found.parentPart) { hasMore = true; break; }
           }
-          segments.push(hasMore ? '│  ' : '   ');
+          segments.push(hasMore ? '│ ' : '  ');
         }
       }
       return segments.join('');
@@ -459,9 +456,13 @@ export default function BOMTable({ isDark = false, searchRef }) {
 
         <div className="flex items-center gap-1 ml-auto">
           {/* 레벨 범례 */}
-          <div className="hidden md:flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mr-2">
-            <span className="w-3 h-3 rounded border border-gray-300" style={{ background: '#FFF9C4' }} />Lv2
-            <span className="w-3 h-3 rounded border border-gray-300 ml-1" style={{ background: '#C8E6C9' }} />Lv3
+          <div className="hidden md:flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mr-2">
+            {LV_BG_LIGHT.slice(1, Math.min(maxLevel, 8)).map((bg, i) => (
+              <span key={i} className="flex items-center gap-0.5">
+                <span className="w-3 h-3 rounded border border-gray-300" style={{ background: bg }} />
+                <span>L{i + 2}</span>
+              </span>
+            ))}
           </div>
           <button
             onClick={() => setCollapsed(new Set())}
