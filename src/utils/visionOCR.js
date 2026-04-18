@@ -76,8 +76,15 @@ export async function extractBOMWithGemini(imageBlob, apiKey) {
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       const msg = err.error?.message || `API 오류 (${response.status})`;
-      // 404(모델 없음)는 다음 모델로, 그 외 에러는 즉시 throw
       if (response.status === 404) { lastErr = new Error(msg); continue; }
+      // 429: retry-after 시간 추출해서 에러에 첨부
+      if (response.status === 429) {
+        const retryMatch = msg.match(/retry in ([\d.]+)s/i);
+        const retrySec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 60;
+        const e = new Error(msg);
+        e.retrySec = retrySec;
+        throw e;
+      }
       throw new Error(msg);
     }
 

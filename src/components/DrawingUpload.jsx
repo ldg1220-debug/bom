@@ -114,13 +114,15 @@ export default function DrawingUpload({ onOCRComplete }) {
   const [ocrStatus, setOcrStatus] = useState('idle');
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrMessage, setOcrMessage] = useState('');
+  const [retryCountdown, setRetryCountdown] = useState(0);
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || '');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
   const fileInputRef = useRef(null);
   const dropRef = useRef(null);
+  const retryTimerRef = useRef(null);
 
-  // ── Claude Vision AI 인식 ──────────────────────────────────────
+  // ── Gemini Vision AI 인식 ──────────────────────────────────────
   const processWithClaude = useCallback(async (file) => {
     const key = localStorage.getItem(STORAGE_KEY);
     if (!key) {
@@ -131,7 +133,8 @@ export default function DrawingUpload({ onOCRComplete }) {
 
     setOcrStatus('processing');
     setOcrProgress(0);
-    setOcrMessage('Claude AI로 분석 중...');
+    setOcrMessage('Gemini AI로 분석 중...');
+    setRetryCountdown(0);
     try {
       const parsed = await extractBOMWithGemini(file, key);
       setOcrStatus('done');
@@ -141,16 +144,30 @@ export default function DrawingUpload({ onOCRComplete }) {
       console.error('Gemini Vision error:', err);
       const msg = err.message;
       const isAuthError = /api.?key|401|invalid|unauthorized|api_key_invalid/i.test(msg);
-      const isQuotaError = /quota|429|rate.?limit|too.?many/i.test(msg);
       if (isAuthError) {
         localStorage.removeItem(STORAGE_KEY);
         setApiKey('');
         setKeyDraft('');
         setShowKeyInput(true);
         setOcrStatus('idle');
-      } else if (isQuotaError) {
-        setOcrStatus('error');
-        setOcrMessage('Gemini 무료 한도 초과 — 잠시 후 다시 시도하거나 aistudio.google.com에서 키를 확인하세요.');
+      } else if (err.retrySec) {
+        // 429: 카운트다운 후 자동 재시도
+        let remaining = err.retrySec;
+        setOcrStatus('processing');
+        setRetryCountdown(remaining);
+        setOcrMessage(`분당 한도 초과 — ${remaining}초 후 자동 재시도...`);
+        clearInterval(retryTimerRef.current);
+        retryTimerRef.current = setInterval(() => {
+          remaining--;
+          if (remaining <= 0) {
+            clearInterval(retryTimerRef.current);
+            setRetryCountdown(0);
+            processWithClaude(file);
+          } else {
+            setRetryCountdown(remaining);
+            setOcrMessage(`분당 한도 초과 — ${remaining}초 후 자동 재시도...`);
+          }
+        }, 1000);
       } else {
         setOcrStatus('error');
         setOcrMessage('AI 오류: ' + msg);
