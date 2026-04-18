@@ -123,7 +123,11 @@ export default function DrawingUpload({ onOCRComplete }) {
   // ── Claude Vision AI 인식 ──────────────────────────────────────
   const processWithClaude = useCallback(async (file) => {
     const key = localStorage.getItem(STORAGE_KEY);
-    if (!key) { setShowKeyInput(true); return; }
+    if (!key) {
+      setKeyDraft('');
+      setShowKeyInput(true);
+      return;
+    }
 
     setOcrStatus('processing');
     setOcrProgress(0);
@@ -135,8 +139,21 @@ export default function DrawingUpload({ onOCRComplete }) {
       onOCRComplete({ ...parsed, rawText: parsed.rawText || '' });
     } catch (err) {
       console.error('Claude Vision error:', err);
-      setOcrStatus('error');
-      setOcrMessage('AI 오류: ' + err.message);
+      const isAuthError = err.message.toLowerCase().includes('auth') ||
+                          err.message.toLowerCase().includes('401') ||
+                          err.message.toLowerCase().includes('invalid') ||
+                          err.message.toLowerCase().includes('unauthorized');
+      if (isAuthError) {
+        // 잘못된 키 삭제 후 입력창 표시
+        localStorage.removeItem(STORAGE_KEY);
+        setApiKey('');
+        setKeyDraft('');
+        setShowKeyInput(true);
+        setOcrStatus('idle');
+      } else {
+        setOcrStatus('error');
+        setOcrMessage('AI 오류: ' + err.message);
+      }
     }
   }, [onOCRComplete]);
 
@@ -293,7 +310,9 @@ export default function DrawingUpload({ onOCRComplete }) {
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex flex-col gap-2">
           <p className="text-xs text-purple-800 font-medium">Anthropic API 키 입력</p>
           <p className="text-xs text-purple-600">
-            키는 브라우저 localStorage에만 저장되며 외부로 전송되지 않습니다.
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer"
+               className="underline">console.anthropic.com</a>에서 키를 발급받으세요.
+            키는 이 브라우저에만 저장되며 외부 서버로 전송되지 않습니다.
           </p>
           <input
             type="password"
