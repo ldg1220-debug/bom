@@ -135,7 +135,7 @@ export async function extractBOMWithGemini(imageBlob, apiKey) {
         { text: PROMPT },
       ],
     }],
-    generationConfig: { temperature: 0, maxOutputTokens: 4096 },
+    generationConfig: { temperature: 0, maxOutputTokens: 8192 },
   });
 
   // 1차: 기본 모델 목록 시도
