@@ -45,7 +45,7 @@ export async function extractBOMWithGemini(imageBlob, apiKey) {
   const base64Data = dataUrl.split(',')[1];
   const mimeType = imageBlob.type || 'image/png';
 
-  const url = `/api/gemini/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const url = `/api/gemini/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -58,6 +58,7 @@ export async function extractBOMWithGemini(imageBlob, apiKey) {
         ],
       }],
       generationConfig: { temperature: 0, maxOutputTokens: 4096 },
+      // gemini-1.5-flash: 무료 tier 광범위 지원 (분당 15회, 일 1500회)
     }),
   });
 

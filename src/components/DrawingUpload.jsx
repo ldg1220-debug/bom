@@ -138,19 +138,19 @@ export default function DrawingUpload({ onOCRComplete }) {
       setOcrMessage('AI 인식 완료');
       onOCRComplete({ ...parsed, rawText: parsed.rawText || '' });
     } catch (err) {
-      console.error('Claude Vision error:', err);
+      console.error('Gemini Vision error:', err);
       const msg = err.message;
-      const isAuthError = /auth|401|invalid|unauthorized/i.test(msg);
-      const isBillingError = /credit|billing|balance|payment/i.test(msg);
+      const isAuthError = /api.?key|401|invalid|unauthorized|api_key_invalid/i.test(msg);
+      const isQuotaError = /quota|429|rate.?limit|too.?many/i.test(msg);
       if (isAuthError) {
         localStorage.removeItem(STORAGE_KEY);
         setApiKey('');
         setKeyDraft('');
         setShowKeyInput(true);
         setOcrStatus('idle');
-      } else if (isBillingError) {
+      } else if (isQuotaError) {
         setOcrStatus('error');
-        setOcrMessage('크레딧 부족 — console.anthropic.com/settings/billing 에서 충전하세요.');
+        setOcrMessage('Gemini 무료 한도 초과 — 잠시 후 다시 시도하거나 aistudio.google.com에서 키를 확인하세요.');
       } else {
         setOcrStatus('error');
         setOcrMessage('AI 오류: ' + msg);
