@@ -23,6 +23,56 @@ function makeInitialState(projectMeta) {
   };
 }
 
+function applyRevisionDiff(existingParts, newParts) {
+  const matchedNewIdx = new Set();
+  const result = [];
+
+  for (const ep of existingParts) {
+    let ni = -1;
+    if (ep.partNumber) {
+      ni = newParts.findIndex((p, i) => !matchedNewIdx.has(i) && p.partNumber === ep.partNumber);
+    }
+    if (ni === -1) {
+      ni = newParts.findIndex((p, i) => !matchedNewIdx.has(i) && !ep.partNumber && !p.partNumber && p.seq === ep.seq);
+    }
+    const np = ni >= 0 ? newParts[ni] : null;
+    if (ni >= 0) matchedNewIdx.add(ni);
+
+    if (!np) {
+      result.push({ ...ep, qty: 0, _deletedInRev: true, specRemark: '삭제' });
+    } else if (np.qty !== ep.qty) {
+      result.push({
+        ...ep,
+        qty: np.qty,
+        _qtyChangedFrom: ep.qty,
+        _deletedInRev: false,
+        specRemark: `수량변경 ${ep.qty}→${np.qty}`,
+        description: np.description || ep.description,
+        material: np.material || ep.material,
+        unit: np.unit || ep.unit,
+      });
+    } else {
+      result.push({
+        ...ep,
+        _deletedInRev: false,
+        _qtyChangedFrom: null,
+        description: np.description !== undefined ? np.description : ep.description,
+        material: np.material !== undefined ? np.material : ep.material,
+      });
+    }
+  }
+
+  const maxSeq = existingParts.reduce((m, p) => Math.max(m, p.seq), 0);
+  let seqOffset = maxSeq;
+  newParts.forEach((np, i) => {
+    if (!matchedNewIdx.has(i)) {
+      result.push({ ...np, seq: ++seqOffset });
+    }
+  });
+
+  return result;
+}
+
 function rebuild(drawings, totalQty) {
   const warnings = detectCircularReferences(drawings);
   const rows = buildBOMRows(drawings);
@@ -129,6 +179,16 @@ function reducer(state, action) {
             return { ...p, ...up };
           }),
         };
+      });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
+    case 'APPLY_REVISION': {
+      const { drawingId, newParts } = action;
+      const newDrawings = state.drawings.map((d) => {
+        if (d.id !== drawingId) return d;
+        return { ...d, parts: applyRevisionDiff(d.parts, newParts), updatedAt: new Date().toISOString() };
       });
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };

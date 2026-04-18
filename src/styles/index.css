@@ -1,3 +1,13 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* 리비전 삭제 행: 취소선 */
+.rev-deleted-row td {
+  text-decoration: line-through;
+  color: #9ca3af !important;
+}
+.dark .rev-deleted-row td {
+  color: #6b7280 !important;
+}
+

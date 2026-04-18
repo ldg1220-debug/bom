@@ -142,6 +142,8 @@ export function buildBOMRows(drawings) {
           remark: part.specRemark || '',
           drawingId: drawing.id,
           isAssyRow: false,
+          _deletedInRev: part._deletedInRev || false,
+          _qtyChangedFrom: part._qtyChangedFrom ?? null,
         };
         rows.push(partRow);
       }

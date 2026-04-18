@@ -516,12 +516,14 @@ const q = searchText.trim().toLowerCase();
                 <tr
                   key={row.id}
                   style={{ backgroundColor: bg || undefined }}
+                  data-rev-deleted={row._deletedInRev ? '' : undefined}
                   className={[
                     'border-b border-gray-200 dark:border-gray-700',
                     'hover:brightness-95 dark:hover:brightness-110',
                     isDragging ? 'opacity-40' : '',
                     isDragOver ? 'outline outline-2 outline-blue-400' : '',
                     !bg ? 'bg-white dark:bg-gray-900' : '',
+                    row._deletedInRev ? 'rev-deleted-row' : '',
                   ].join(' ')}
                   draggable={!row.isAssyRow}
                   onDragStart={(e) => handleDragStart(e, row)}
@@ -641,9 +643,18 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 단위소요량 (부품만 편집 가능)
+                    // 단위소요량 (부품만 편집 가능, 수량변경은 빨간색 표시)
                     if (col.key === 'unitQty') {
                       if (!row.isAssyRow) {
+                        if (row._qtyChangedFrom != null) {
+                          return (
+                            <td key="unitQty" style={{ width: col.w, minWidth: col.w }}
+                              className="border-r border-gray-200 dark:border-gray-700 px-1.5 py-1 text-right">
+                              <span className="text-red-600 dark:text-red-400 font-bold text-xs">{value}</span>
+                              <div className="text-gray-400 line-through text-xs leading-none">{row._qtyChangedFrom}</div>
+                            </td>
+                          );
+                        }
                         return (
                           <td key="unitQty" style={{ width: col.w, minWidth: col.w }}
                             className="border-r border-gray-200 dark:border-gray-700 px-0 py-0">

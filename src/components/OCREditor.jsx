@@ -1,7 +1,94 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useBOM } from '../context/BOMContext';
 import DrawingUpload from './DrawingUpload';
+
+function formatRelativeDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const diff = Math.floor((Date.now() - d) / 86400000);
+  if (diff === 0) return '오늘';
+  if (diff === 1) return '어제';
+  if (diff < 7) return `${diff}일 전`;
+  return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+}
+
+function DrawingCombobox({ drawings, value, onChange, accentColor = 'orange' }) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+
+  const sorted = [...drawings].sort(
+    (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+  );
+  const filtered = sorted.filter(
+    (d) =>
+      !query ||
+      d.drawingNumber.toLowerCase().includes(query.toLowerCase()) ||
+      (d.title || '').toLowerCase().includes(query.toLowerCase())
+  );
+  const selected = drawings.find((d) => d.id === value);
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
+
+  const borderCls = accentColor === 'purple'
+    ? 'border-purple-300 focus-within:border-purple-500'
+    : 'border-orange-300 focus-within:border-orange-500';
+  const itemHoverCls = accentColor === 'purple' ? 'hover:bg-purple-50' : 'hover:bg-orange-50';
+  const labelCls = accentColor === 'purple' ? 'text-purple-700' : 'text-orange-700';
+
+  return (
+    <div ref={boxRef} className="relative">
+      <div className={`flex items-center border rounded overflow-hidden bg-white ${borderCls}`}>
+        <input
+          className="flex-1 px-2 py-1.5 text-sm focus:outline-none"
+          placeholder="도면번호 또는 제목 검색..."
+          value={open ? query : (selected ? `${selected.drawingNumber}${selected.title ? ' · ' + selected.title : ''}` : '')}
+          onFocus={() => { setOpen(true); setQuery(''); }}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); onChange(''); }}
+        />
+        {selected && !open && (
+          <button
+            className="px-2 text-gray-400 hover:text-gray-600 text-sm"
+            onMouseDown={(e) => { e.preventDefault(); onChange(''); }}
+          >✕</button>
+        )}
+        <span className="px-2 text-gray-400 text-xs pointer-events-none">{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-4">일치하는 도면 없음</p>
+          ) : (
+            filtered.map((d, i) => (
+              <button
+                key={d.id}
+                onMouseDown={() => { onChange(d.id); setQuery(''); setOpen(false); }}
+                className={`w-full text-left px-3 py-2 border-b border-gray-100 last:border-0 ${itemHoverCls}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-mono font-semibold ${labelCls}`}>{d.drawingNumber}</span>
+                  <div className="flex items-center gap-2">
+                    {i === 0 && <span className="text-xs text-blue-500 font-medium">최근</span>}
+                    <span className="text-xs text-gray-400">{d.parts.length}파트</span>
+                    <span className="text-xs text-gray-400">{formatRelativeDate(d.updatedAt)}</span>
+                  </div>
+                </div>
+                {d.title && <p className="text-xs text-gray-500 truncate mt-0.5">{d.title}</p>}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const EMPTY_PART = (seq = 1) => ({
   id: uuidv4(),
@@ -23,8 +110,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [rev, setRev] = useState('');
   const [parts, setParts] = useState([EMPTY_PART()]);
   const [rawText, setRawText] = useState('');
-  const [appendMode, setAppendMode] = useState(false);
-  const [appendTargetId, setAppendTargetId] = useState('');
+  const [mode, setMode] = useState('new'); // 'new' | 'append' | 'revision'
+  const [targetDrawingId, setTargetDrawingId] = useState('');
   const isEditMode = !!editDrawing;
 
   // 재등록 모드: editDrawing prop으로 폼을 채움
@@ -98,8 +185,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     setRev('');
     setParts([EMPTY_PART()]);
     setRawText('');
-    setAppendMode(false);
-    setAppendTargetId('');
+    setMode('new');
+    setTargetDrawingId('');
   }
 
   function addToBOM() {
@@ -115,43 +202,54 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         specRemark: (p.specRemark || '').trim(),
       }));
 
-    // 추가 모드: 기존 도면에 파트 병합
-    if (appendMode) {
-      if (!appendTargetId) { alert('추가할 도면을 선택하세요.'); return; }
+    if (mode === 'append') {
+      if (!targetDrawingId) { alert('추가할 도면을 선택하세요.'); return; }
       if (validParts.length === 0) { alert('추가할 파트가 없습니다.'); return; }
-      dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: appendTargetId, newParts: validParts });
+      dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: targetDrawingId, newParts: validParts });
       onDrawingAdded && onDrawingAdded();
       resetForm();
       return;
     }
 
-    const trimmed = drawingNumber.trim();
-    if (!trimmed) {
-      alert('도면번호를 입력하세요.');
+    if (mode === 'revision') {
+      if (!targetDrawingId) { alert('리비전을 적용할 도면을 선택하세요.'); return; }
+      if (validParts.length === 0) { alert('새 리비전 파트가 없습니다.'); return; }
+      const target = drawings.find((d) => d.id === targetDrawingId);
+      const ok = confirm(
+        `"${target?.drawingNumber}" 도면에 리비전을 적용합니다.\n` +
+        `• 삭제된 파트: 취소선 표시 + 비고 "삭제"\n` +
+        `• 수량 변경: 빨간 숫자 + 비고 "수량변경 X→Y"\n` +
+        `계속하시겠습니까?`
+      );
+      if (!ok) return;
+      dispatch({ type: 'APPLY_REVISION', drawingId: targetDrawingId, newParts: validParts });
+      onDrawingAdded && onDrawingAdded();
+      resetForm();
       return;
     }
 
-    // 중복 도면번호 감지 (재등록 모드가 아닌 경우만)
+    // 'new' 모드
+    const trimmed = drawingNumber.trim();
+    if (!trimmed) { alert('도면번호를 입력하세요.'); return; }
     const existing = drawings.find((d) => d.drawingNumber === trimmed);
     if (existing && !isEditMode) {
-      const ok = confirm(
-        `"${trimmed}" 도면이 이미 등록되어 있습니다.\n기존 데이터를 덮어쓰시겠습니까?`
-      );
+      const ok = confirm(`"${trimmed}" 도면이 이미 등록되어 있습니다.\n기존 데이터를 덮어쓰시겠습니까?`);
       if (!ok) return;
     }
 
-    const drawing = {
-      id: editDrawing ? editDrawing.id : uuidv4(),
-      drawingNumber: trimmed,
-      title: title.trim(),
-      rev: rev.trim(),
-      parts: validParts,
-      rawOcr: rawText,
-      createdAt: editDrawing ? editDrawing.createdAt : new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    dispatch({ type: 'ADD_DRAWING', drawing });
+    dispatch({
+      type: 'ADD_DRAWING',
+      drawing: {
+        id: editDrawing ? editDrawing.id : uuidv4(),
+        drawingNumber: trimmed,
+        title: title.trim(),
+        rev: rev.trim(),
+        parts: validParts,
+        rawOcr: rawText,
+        createdAt: editDrawing ? editDrawing.createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
     onDrawingAdded && onDrawingAdded();
     resetForm();
     if (isEditMode) onEditCancel && onEditCancel();
@@ -189,44 +287,26 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       {/* 모드 토글 (편집 모드에서는 숨김) */}
       {!isEditMode && drawings.length > 0 && (
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          <button
-            onClick={() => setAppendMode(false)}
-            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
-              !appendMode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            새 도면 등록
-          </button>
-          <button
-            onClick={() => setAppendMode(true)}
-            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
-              appendMode ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            기존 도면에 파트 추가
-          </button>
+          {[
+            { id: 'new', label: '새 도면 등록', active: 'text-blue-700' },
+            { id: 'append', label: '파트 이어 붙이기', active: 'text-orange-600' },
+            { id: 'revision', label: '리비전 교체', active: 'text-purple-600' },
+          ].map(({ id, label, active }) => (
+            <button
+              key={id}
+              onClick={() => { setMode(id); setTargetDrawingId(''); }}
+              className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+                mode === id ? `bg-white ${active} shadow-sm` : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* 도면 정보 */}
-      {appendMode ? (
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-          <h3 className="text-sm font-bold text-orange-700 mb-1">어느 도면에 추가할까요?</h3>
-          <p className="text-xs text-orange-500 mb-3">도면번호가 없는 분할 스크린샷을 올렸을 때 사용하세요.</p>
-          <select
-            className="w-full border border-orange-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-orange-500 bg-white"
-            value={appendTargetId}
-            onChange={(e) => setAppendTargetId(e.target.value)}
-          >
-            <option value="">— 도면 선택 —</option>
-            {drawings.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.drawingNumber}{d.title ? ` · ${d.title}` : ''} ({d.parts.length}파트)
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : (
+      {/* 도면 정보 / 타겟 선택 */}
+      {mode === 'new' || isEditMode ? (
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h3 className="text-sm font-bold text-gray-700 mb-3">도면 정보</h3>
           <div className="grid grid-cols-3 gap-3">
@@ -259,13 +339,29 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
             </div>
           </div>
         </div>
+      ) : mode === 'append' ? (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+          <h3 className="text-sm font-bold text-orange-700 mb-1">어느 도면에 이어 붙일까요?</h3>
+          <p className="text-xs text-orange-500 mb-3">도면번호가 없는 분할 스크린샷을 올렸을 때 사용하세요. 최근 작업 도면이 위에 표시됩니다.</p>
+          <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="orange" />
+        </div>
+      ) : (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <h3 className="text-sm font-bold text-purple-700 mb-1">리비전 교체 — 대상 도면 선택</h3>
+          <p className="text-xs text-purple-500 mb-3">
+            새 리비전 파트리스트를 인식한 뒤 선택한 도면과 비교합니다.
+            삭제된 파트는 <span className="line-through">취소선</span>으로, 수량 변경은 <span className="text-red-500 font-bold">빨간 숫자</span>로 표시됩니다.
+          </p>
+          <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="purple" />
+        </div>
       )}
 
       {/* 파트리스트 편집 테이블 */}
       <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden" style={{ minHeight: 200 }}>
         <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
           <h3 className="text-sm font-bold text-gray-700">
-            파트리스트 <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
+            {mode === 'revision' ? '새 리비전 파트리스트' : '파트리스트'}{' '}
+            <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
           </h3>
           <span className="text-xs text-gray-400">Tab 키로 다음 셀 이동</span>
         </div>
@@ -360,12 +456,15 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         <button
           onClick={addToBOM}
           className={`flex-1 font-bold py-3 rounded-lg text-sm shadow transition-colors text-white ${
-            appendMode
-              ? 'bg-orange-600 hover:bg-orange-700'
-              : 'bg-blue-700 hover:bg-blue-800'
+            mode === 'append' ? 'bg-orange-600 hover:bg-orange-700' :
+            mode === 'revision' ? 'bg-purple-600 hover:bg-purple-700' :
+            'bg-blue-700 hover:bg-blue-800'
           }`}
         >
-          {isEditMode ? 'BOM에 저장 (수정)' : appendMode ? '선택 도면에 파트 추가' : 'BOM에 추가'}
+          {isEditMode ? 'BOM에 저장 (수정)' :
+           mode === 'append' ? '선택 도면에 파트 추가' :
+           mode === 'revision' ? '리비전 적용' :
+           'BOM에 추가'}
         </button>
       </div>
     </div>
