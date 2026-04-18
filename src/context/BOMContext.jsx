@@ -20,6 +20,7 @@ function makeInitialState(projectMeta) {
     drawings: [],
     bomRows: [],
     circularWarnings: [],
+    purchaseUnits: new Set(),
   };
 }
 
@@ -85,7 +86,12 @@ function reducer(state, action) {
     case 'LOAD_PROJECT': {
       const { drawings = [], project } = action.data;
       const { finalRows, warnings } = rebuild(drawings, project?.totalQty ?? 33);
-      return { ...action.data, bomRows: finalRows, circularWarnings: warnings };
+      return {
+        ...action.data,
+        bomRows: finalRows,
+        circularWarnings: warnings,
+        purchaseUnits: new Set(action.data.purchaseUnits || []),
+      };
     }
 
     case 'SET_PROJECT_INFO': {
@@ -112,7 +118,16 @@ function reducer(state, action) {
     case 'DELETE_DRAWING': {
       const newDrawings = state.drawings.filter((d) => d.id !== action.drawingId);
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
-      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+      // 삭제된 도면의 구매단위 키 정리
+      const prefix = `${action.drawingId}:`;
+      const newPU = new Set([...state.purchaseUnits].filter((k) => !k.startsWith(prefix)));
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings, purchaseUnits: newPU };
+    }
+
+    case 'TOGGLE_PURCHASE_UNIT': {
+      const next = new Set(state.purchaseUnits);
+      next.has(action.key) ? next.delete(action.key) : next.add(action.key);
+      return { ...state, purchaseUnits: next };
     }
 
     case 'UPDATE_BOM_ROW': {

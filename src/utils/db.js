@@ -12,10 +12,11 @@ db.version(1).stores({
  * bomRows와 circularWarnings는 유도값이므로 저장하지 않음.
  */
 export async function saveProject(state) {
-  const { bomRows, circularWarnings, ...persistable } = state;
+  const { bomRows, circularWarnings, purchaseUnits, ...persistable } = state;
   await db.projects.put({
-    id: state.project.id,       // Dexie 키 경로: 최상위 id 필수
+    id: state.project.id,
     ...persistable,
+    purchaseUnits: [...(purchaseUnits || [])], // Set → Array for IndexedDB serialization
     project: {
       ...persistable.project,
       updatedAt: new Date().toISOString(),

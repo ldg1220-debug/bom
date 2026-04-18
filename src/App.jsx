@@ -6,18 +6,19 @@ import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import OCREditor from './components/OCREditor';
 import BOMTable from './components/BOMTable';
+import MBOMTable from './components/MBOMTable';
 import ProjectScreen from './components/ProjectScreen';
 
 // ── 프로젝트가 열린 후의 메인 화면 ──────────────────────────────
 function AppContent({ onChangeProject, isDark, onToggleDark }) {
   const { state, dispatch } = useBOM();
-  const [activeTab, setActiveTab] = useState('register');
+  const [activeTab, setActiveTab] = useState('register'); // 'register' | 'ebom' | 'mbom'
   const [selectedDrawingId, setSelectedDrawingId] = useState(null);
   const [editDrawing, setEditDrawing] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   function handleDrawingAdded() {
-    setActiveTab('bom');
+    setActiveTab('ebom');
     setEditDrawing(null);
   }
 
@@ -50,8 +51,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
         }
         case 'f': {
           e.preventDefault();
-          setActiveTab('bom');
-          // BOMTable 검색창에 포커스 — CustomEvent 사용
+          setActiveTab('ebom');
           window.dispatchEvent(new CustomEvent('bom:focus-search'));
           break;
         }
@@ -109,9 +109,13 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
                 onEditCancel={() => setEditDrawing(null)}
               />
             </div>
-          ) : (
+          ) : activeTab === 'ebom' ? (
             <div className="h-full">
               <BOMTable isDark={isDark} />
+            </div>
+          ) : (
+            <div className="h-full">
+              <MBOMTable />
             </div>
           )}
         </main>

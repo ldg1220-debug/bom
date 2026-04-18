@@ -176,6 +176,7 @@ function makeColDefs(totalQty) {
     { label: 'NO.', key: 'no', w: 36, readOnly: true },
     { label: '자품번', key: 'childPart', w: 144, readOnly: true },
     { label: '품명', key: 'description', w: 320 },
+    { label: '구매단위', key: '_purchase', w: 56, readOnly: true },
     { label: '재질', key: 'material', w: 88, readOnly: true },
     { label: '규격SPEC', key: 'spec', w: 88 },
     { label: 'T', key: 'sizeT', w: 44 },
@@ -611,6 +612,30 @@ const q = searchText.trim().toLowerCase();
                           <span className={`font-mono ${row.isAssyRow ? 'font-bold text-blue-800 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
                             <Highlight text={value} query={q} />
                           </span>
+                        </td>
+                      );
+                    }
+
+                    // 구매단위 체크박스 (부품 행만)
+                    if (col.key === '_purchase') {
+                      if (row.isAssyRow) {
+                        return (
+                          <td key="_purchase" style={{ width: col.w, minWidth: col.w }}
+                            className="border-r border-gray-200 dark:border-gray-700" />
+                        );
+                      }
+                      const pKey = `${row.drawingId}:${row.no}`;
+                      const checked = state.purchaseUnits?.has(pKey) || false;
+                      return (
+                        <td key="_purchase" style={{ width: col.w, minWidth: col.w }}
+                          className="border-r border-gray-200 dark:border-gray-700 text-center px-1">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => dispatch({ type: 'TOGGLE_PURCHASE_UNIT', key: pKey })}
+                            className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
+                            title="구매단위 체크 → M-BOM에 집계"
+                          />
                         </td>
                       );
                     }

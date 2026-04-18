@@ -86,26 +86,23 @@ export default function Header({ activeTab, setActiveTab, onChangeProject, isDar
 
         {/* 가운데: 탭 */}
         <div className="flex bg-blue-700 dark:bg-gray-700 rounded-lg overflow-hidden">
-          <button
-            onClick={() => setActiveTab('register')}
-            className={`px-4 sm:px-5 py-1.5 text-sm font-medium transition-colors ${
-              activeTab === 'register'
-                ? 'bg-white text-blue-800 dark:bg-gray-200 dark:text-gray-900'
-                : 'hover:bg-blue-600 dark:hover:bg-gray-600'
-            }`}
-          >
-            도면 등록
-          </button>
-          <button
-            onClick={() => setActiveTab('bom')}
-            className={`px-4 sm:px-5 py-1.5 text-sm font-medium transition-colors ${
-              activeTab === 'bom'
-                ? 'bg-white text-blue-800 dark:bg-gray-200 dark:text-gray-900'
-                : 'hover:bg-blue-600 dark:hover:bg-gray-600'
-            }`}
-          >
-            BOM 테이블
-          </button>
+          {[
+            { id: 'register', label: '도면 등록' },
+            { id: 'ebom',     label: 'E-BOM'   },
+            { id: 'mbom',     label: 'M-BOM'   },
+          ].map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`px-4 sm:px-5 py-1.5 text-sm font-medium transition-colors ${
+                activeTab === id
+                  ? 'bg-white text-blue-800 dark:bg-gray-200 dark:text-gray-900'
+                  : 'hover:bg-blue-600 dark:hover:bg-gray-600'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {/* 오른쪽: 내보내기 / 불러오기 / 다크모드 / 프로젝트 변경 */}
