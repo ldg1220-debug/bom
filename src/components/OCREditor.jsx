@@ -23,6 +23,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [rev, setRev] = useState('');
   const [parts, setParts] = useState([EMPTY_PART()]);
   const [rawText, setRawText] = useState('');
+  const [appendMode, setAppendMode] = useState(false);
+  const [appendTargetId, setAppendTargetId] = useState('');
   const isEditMode = !!editDrawing;
 
   // 재등록 모드: editDrawing prop으로 폼을 채움
@@ -96,9 +98,33 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     setRev('');
     setParts([EMPTY_PART()]);
     setRawText('');
+    setAppendMode(false);
+    setAppendTargetId('');
   }
 
   function addToBOM() {
+    const validParts = parts
+      .filter((p) => p.partNumber || p.description)
+      .map((p, i) => ({
+        seq: Number(p.seq) || i + 1,
+        partNumber: (p.partNumber || '').trim(),
+        description: (p.description || '').trim(),
+        material: (p.material || '').trim(),
+        qty: parseFloat(p.qty) || 1,
+        unit: (p.unit || 'EA').trim(),
+        specRemark: (p.specRemark || '').trim(),
+      }));
+
+    // 추가 모드: 기존 도면에 파트 병합
+    if (appendMode) {
+      if (!appendTargetId) { alert('추가할 도면을 선택하세요.'); return; }
+      if (validParts.length === 0) { alert('추가할 파트가 없습니다.'); return; }
+      dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: appendTargetId, newParts: validParts });
+      onDrawingAdded && onDrawingAdded();
+      resetForm();
+      return;
+    }
+
     const trimmed = drawingNumber.trim();
     if (!trimmed) {
       alert('도면번호를 입력하세요.');
@@ -119,17 +145,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       drawingNumber: trimmed,
       title: title.trim(),
       rev: rev.trim(),
-      parts: parts
-        .filter((p) => p.partNumber || p.description)
-        .map((p, i) => ({
-          seq: Number(p.seq) || i + 1,
-          partNumber: (p.partNumber || '').trim(),
-          description: (p.description || '').trim(),
-          material: (p.material || '').trim(),
-          qty: parseFloat(p.qty) || 1,
-          unit: (p.unit || 'EA').trim(),
-          specRemark: (p.specRemark || '').trim(),
-        })),
+      parts: validParts,
       rawOcr: rawText,
       createdAt: editDrawing ? editDrawing.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -170,39 +186,80 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       {/* 이미지 업로드 */}
       <DrawingUpload onOCRComplete={handleOCRComplete} />
 
+      {/* 모드 토글 (편집 모드에서는 숨김) */}
+      {!isEditMode && drawings.length > 0 && (
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+          <button
+            onClick={() => setAppendMode(false)}
+            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+              !appendMode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            새 도면 등록
+          </button>
+          <button
+            onClick={() => setAppendMode(true)}
+            className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+              appendMode ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            기존 도면에 파트 추가
+          </button>
+        </div>
+      )}
+
       {/* 도면 정보 */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <h3 className="text-sm font-bold text-gray-700 mb-3">도면 정보</h3>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">도면번호 *</label>
-            <input
-              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
-              value={drawingNumber}
-              onChange={(e) => setDrawingNumber(e.target.value)}
-              placeholder="예: RM-LC01-FC23344"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">도면 제목</label>
-            <input
-              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="예: FRONT PANEL, WELDED"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">REV</label>
-            <input
-              className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-              value={rev}
-              onChange={(e) => setRev(e.target.value)}
-              placeholder="A"
-            />
+      {appendMode ? (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+          <h3 className="text-sm font-bold text-orange-700 mb-1">어느 도면에 추가할까요?</h3>
+          <p className="text-xs text-orange-500 mb-3">도면번호가 없는 분할 스크린샷을 올렸을 때 사용하세요.</p>
+          <select
+            className="w-full border border-orange-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-orange-500 bg-white"
+            value={appendTargetId}
+            onChange={(e) => setAppendTargetId(e.target.value)}
+          >
+            <option value="">— 도면 선택 —</option>
+            {drawings.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.drawingNumber}{d.title ? ` · ${d.title}` : ''} ({d.parts.length}파트)
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-3">도면 정보</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">도면번호 *</label>
+              <input
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
+                value={drawingNumber}
+                onChange={(e) => setDrawingNumber(e.target.value)}
+                placeholder="예: RM-LC01-FC23344"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">도면 제목</label>
+              <input
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="예: FRONT PANEL, WELDED"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">REV</label>
+              <input
+                className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                value={rev}
+                onChange={(e) => setRev(e.target.value)}
+                placeholder="A"
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 파트리스트 편집 테이블 */}
       <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden" style={{ minHeight: 200 }}>
@@ -302,9 +359,13 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         )}
         <button
           onClick={addToBOM}
-          className="flex-1 bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-lg text-sm shadow transition-colors"
+          className={`flex-1 font-bold py-3 rounded-lg text-sm shadow transition-colors text-white ${
+            appendMode
+              ? 'bg-orange-600 hover:bg-orange-700'
+              : 'bg-blue-700 hover:bg-blue-800'
+          }`}
         >
-          {isEditMode ? 'BOM에 저장 (수정)' : 'BOM에 추가'}
+          {isEditMode ? 'BOM에 저장 (수정)' : appendMode ? '선택 도면에 파트 추가' : 'BOM에 추가'}
         </button>
       </div>
     </div>

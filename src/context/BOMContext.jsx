@@ -134,6 +134,18 @@ function reducer(state, action) {
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
     }
 
+    case 'APPEND_PARTS_TO_DRAWING': {
+      const { drawingId, newParts } = action;
+      const newDrawings = state.drawings.map((d) => {
+        if (d.id !== drawingId) return d;
+        const maxSeq = d.parts.reduce((m, p) => Math.max(m, p.seq), 0);
+        const appended = newParts.map((p, i) => ({ ...p, seq: maxSeq + i + 1 }));
+        return { ...d, parts: [...d.parts, ...appended], updatedAt: new Date().toISOString() };
+      });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
     case 'CLEAR_CIRCULAR_WARNINGS':
       return { ...state, circularWarnings: [] };
 
