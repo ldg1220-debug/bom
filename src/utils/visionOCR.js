@@ -40,14 +40,87 @@ const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트
   ]
 }`;
 
-// 우선순위 순 모델 목록 — 앞에서부터 시도
-const MODELS = [
+// 우선순위 순 초기 모델 목록
+const DEFAULT_MODELS = [
   'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
+  'gemini-2.0-flash-001',
+  'gemini-1.5-flash-8b',
   'gemini-1.5-flash',
   'gemini-1.5-flash-latest',
   'gemini-1.5-pro',
+  'gemini-1.5-pro-latest',
 ];
+
+async function listGeminiModels(apiKey) {
+  try {
+    const url = `/api/gemini/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => m.name.replace('models/', ''));
+  } catch {
+    return [];
+  }
+}
+
+function parseResult(parsed, text) {
+  return {
+    drawingNumber: parsed.drawingNumber || '',
+    title: parsed.title || '',
+    rev: parsed.rev || '',
+    parts: (parsed.parts || []).map((p, i) => ({
+      seq: Number(p.seq) || i + 1,
+      partNumber: String(p.partNumber || '').trim(),
+      description: String(p.description || '').trim(),
+      material: String(p.material || '').trim(),
+      qty: parseFloat(p.qty) || 1,
+      unit: String(p.unit || 'EA').trim().toUpperCase(),
+      specRemark: String(p.specRemark || '').trim(),
+    })),
+    rawText: text,
+  };
+}
+
+async function tryModels(models, body, apiKey) {
+  let lastErr = null;
+  let allNotFound = true;
+
+  for (const model of models) {
+    const url = `/api/gemini/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const msg = err.error?.message || `API 오류 (${response.status})`;
+      if (response.status === 404) { lastErr = new Error(msg); continue; }
+      allNotFound = false;
+      if (response.status === 429) {
+        const retryMatch = msg.match(/retry in ([\d.]+)s/i);
+        const retrySec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 60;
+        const e = new Error(msg);
+        e.retrySec = retrySec;
+        throw e;
+      }
+      throw new Error(msg);
+    }
+
+    allNotFound = false;
+    const result = await response.json();
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('응답에서 JSON을 찾을 수 없습니다.\n' + text.slice(0, 200));
+    return parseResult(JSON.parse(jsonMatch[0]), text);
+  }
+
+  return { allNotFound, lastErr };
+}
 
 export async function extractBOMWithGemini(imageBlob, apiKey) {
   const dataUrl = await blobToBase64(imageBlob);
@@ -64,54 +137,22 @@ export async function extractBOMWithGemini(imageBlob, apiKey) {
     generationConfig: { temperature: 0, maxOutputTokens: 4096 },
   });
 
-  let lastErr = null;
-  for (const model of MODELS) {
-    const url = `/api/gemini/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
+  // 1차: 기본 모델 목록 시도
+  const result1 = await tryModels(DEFAULT_MODELS, body, apiKey);
+  if (result1 && !result1.allNotFound) return result1;
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      const msg = err.error?.message || `API 오류 (${response.status})`;
-      if (response.status === 404) { lastErr = new Error(msg); continue; }
-      // 429: retry-after 시간 추출해서 에러에 첨부
-      if (response.status === 429) {
-        const retryMatch = msg.match(/retry in ([\d.]+)s/i);
-        const retrySec = retryMatch ? Math.ceil(parseFloat(retryMatch[1])) : 60;
-        const e = new Error(msg);
-        e.retrySec = retrySec;
-        throw e;
-      }
-      throw new Error(msg);
-    }
-
-    const result = await response.json();
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('응답에서 JSON을 찾을 수 없습니다.\n' + text.slice(0, 200));
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      drawingNumber: parsed.drawingNumber || '',
-      title: parsed.title || '',
-      rev: parsed.rev || '',
-      parts: (parsed.parts || []).map((p, i) => ({
-        seq: Number(p.seq) || i + 1,
-        partNumber: String(p.partNumber || '').trim(),
-        description: String(p.description || '').trim(),
-        material: String(p.material || '').trim(),
-        qty: parseFloat(p.qty) || 1,
-        unit: String(p.unit || 'EA').trim().toUpperCase(),
-        specRemark: String(p.specRemark || '').trim(),
-      })),
-      rawText: text,
-    };
+  // 2차: 모든 모델이 404면 ListModels API로 실제 사용 가능 모델 조회 후 재시도
+  const discovered = await listGeminiModels(apiKey);
+  if (discovered.length > 0) {
+    const result2 = await tryModels(discovered, body, apiKey);
+    if (result2 && !result2.allNotFound) return result2;
   }
 
-  // 모든 모델 실패
-  throw lastErr || new Error('사용 가능한 Gemini 모델을 찾을 수 없습니다.');
+  const lastErr = (result1 && result1.lastErr) || null;
+  if (lastErr) throw lastErr;
+  throw new Error(
+    discovered.length === 0
+      ? 'ListModels 조회 실패 — API 키가 유효한지, Generative Language API가 활성화되어 있는지 확인하세요.'
+      : '사용 가능한 Gemini 모델을 찾을 수 없습니다: ' + discovered.join(', ')
+  );
 }
