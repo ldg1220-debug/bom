@@ -109,6 +109,31 @@ function reducer(state, action) {
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
     }
 
+    case 'UPDATE_DRAWING_PART': {
+      const { drawingId, isAssyRow, partSeq, fields } = action;
+      const newDrawings = state.drawings.map((d) => {
+        if (d.id !== drawingId) return d;
+        if (isAssyRow) {
+          const up = {};
+          if ('description' in fields) up.title = fields.description;
+          return { ...d, ...up };
+        }
+        return {
+          ...d,
+          parts: d.parts.map((p) => {
+            if (p.seq !== partSeq) return p;
+            const up = {};
+            if ('description' in fields) up.description = fields.description;
+            if ('material' in fields) up.material = fields.material;
+            if ('unitQty' in fields) up.qty = Number(fields.unitQty) || p.qty;
+            return { ...p, ...up };
+          }),
+        };
+      });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
     case 'CLEAR_CIRCULAR_WARNINGS':
       return { ...state, circularWarnings: [] };
 

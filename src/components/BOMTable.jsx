@@ -62,7 +62,7 @@ function Highlight({ text, query }) {
 }
 
 // ── 더블클릭 인라인 편집 셀 ──────────────────────────────────
-function EditableCell({ rowId, field, value, onUpdate, align = 'left', mono = false, className = '' }) {
+function EditableCell({ rowId, field, value, onUpdate, align = 'left', mono = false, className = '', query = '' }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
 
@@ -99,7 +99,9 @@ function EditableCell({ rowId, field, value, onUpdate, align = 'left', mono = fa
       title="더블클릭하여 편집"
       className={`px-1.5 py-1 text-xs cursor-text select-none min-h-[24px] ${mono ? 'font-mono' : ''} text-${align} ${className}`}
     >
-      {value != null && value !== '' ? value : <span className="text-gray-300 dark:text-gray-600">—</span>}
+      {value != null && value !== ''
+        ? (query ? <Highlight text={String(value)} query={query} /> : value)
+        : <span className="text-gray-300 dark:text-gray-600">—</span>}
     </div>
   );
 }
@@ -176,7 +178,7 @@ function makeColDefs(totalQty) {
     { label: 'REV', key: 'rev', w: 44 },
     { label: 'NO.', key: 'no', w: 36, readOnly: true },
     { label: '자품번', key: 'childPart', w: 144, readOnly: true },
-    { label: '품명', key: 'description', w: 224, readOnly: true },
+    { label: '품명', key: 'description', w: 280 },
     { label: '재질', key: 'material', w: 88, readOnly: true },
     { label: '규격SPEC', key: 'spec', w: 88 },
     { label: 'T', key: 'sizeT', w: 44 },
@@ -244,6 +246,45 @@ export default function BOMTable({ isDark = false, searchRef }) {
     });
   }, [bomRows, collapsed, isFiltering, searchText, typeFilter, levelFilter]);
 
+  // ── 트리 연결선 계산 ──
+  const treeConnectors = useMemo(() => {
+    const assyIdx = {};
+    displayRows.forEach((r, i) => { if (r.isAssyRow) assyIdx[r.childPart] = i; });
+
+    return displayRows.map((row, i) => {
+      if (row.level <= 1) return null;
+      const L = row.level;
+      const segments = [];
+
+      for (let lvl = 2; lvl <= L; lvl++) {
+        if (lvl === L) {
+          let isLast = true;
+          for (let j = i + 1; j < displayRows.length; j++) {
+            if (displayRows[j].level < L) break;
+            if (displayRows[j].level === L && displayRows[j].parentPart === row.parentPart) { isLast = false; break; }
+          }
+          segments.push(isLast ? '└─ ' : '├─ ');
+        } else {
+          let current = row;
+          while (current.level > lvl) {
+            const pi = assyIdx[current.parentPart];
+            if (pi === undefined) break;
+            current = displayRows[pi];
+          }
+          const found = current.level === lvl ? current : null;
+          if (!found) { segments.push('   '); continue; }
+          let hasMore = false;
+          for (let j = i + 1; j < displayRows.length; j++) {
+            if (displayRows[j].level < lvl) break;
+            if (displayRows[j].level === lvl && displayRows[j].parentPart === found.parentPart) { hasMore = true; break; }
+          }
+          segments.push(hasMore ? '│  ' : '   ');
+        }
+      }
+      return segments.join('');
+    });
+  }, [displayRows]);
+
   // ── 핸들러 ──
   const toggleCollapse = useCallback((childPart) => {
     setCollapsed((prev) => {
@@ -256,6 +297,12 @@ export default function BOMTable({ isDark = false, searchRef }) {
   const updateRow = useCallback((id, field, value) => {
     dispatch({ type: 'UPDATE_BOM_ROW', rowId: id, fields: { [field]: value } });
   }, [dispatch]);
+
+  const updateDrawingPart = useCallback((id, field, value) => {
+    const row = bomRows.find((r) => r.id === id);
+    if (!row) return;
+    dispatch({ type: 'UPDATE_DRAWING_PART', drawingId: row.drawingId, isAssyRow: row.isAssyRow, partSeq: row.no, fields: { [field]: value } });
+  }, [bomRows, dispatch]);
 
   // ── 드래그 핸들러 ──
   function handleDragStart(e, row) {
@@ -454,14 +501,13 @@ export default function BOMTable({ isDark = false, searchRef }) {
             </tr>
           </thead>
           <tbody>
-            {displayRows.map((row) => {
+            {displayRows.map((row, rowIndex) => {
               const bg = getLevelBg(row.level, isDark);
               const isDragging = dragId === row.id;
               const isDragOver = dragOverId === row.id;
               const hasChildren = row.isAssyRow && bomRows.some((r) => r.parentPart === row.childPart);
               const isCollapsed = collapsed.has(row.childPart);
-              const indent = (row.level - 1) * 20;
-              const q = searchText.trim().toLowerCase();
+const q = searchText.trim().toLowerCase();
               const isLinked = row.isAssyRow || state.drawings.some((d) => d.drawingNumber === row.childPart);
               const canLink = !row.isAssyRow && !!row.drawingId && !!row.no;
 
@@ -516,13 +562,18 @@ export default function BOMTable({ isDark = false, searchRef }) {
                       );
                     }
 
-                    // 품명 컬럼: 들여쓰기 + 토글 + readOnly
+                    // 품명 컬럼: 트리 연결선 + 토글 + EditableCell
                     if (col.key === 'description') {
+                      const treePrefix = treeConnectors[rowIndex];
                       return (
                         <td key="description" style={{ width: col.w, minWidth: col.w }}
                           className="border-r border-gray-200 dark:border-gray-700 px-0 py-0">
                           <div className="flex items-center">
-                            <span style={{ minWidth: indent + 'px', display: 'block' }} />
+                            {treePrefix != null && (
+                              <span className="font-mono text-gray-400 dark:text-gray-500 text-xs shrink-0 select-none whitespace-pre">
+                                {treePrefix}
+                              </span>
+                            )}
                             {hasChildren ? (
                               <button
                                 onClick={() => toggleCollapse(row.childPart)}
@@ -531,9 +582,14 @@ export default function BOMTable({ isDark = false, searchRef }) {
                             ) : (
                               <span className="w-5 shrink-0" />
                             )}
-                            <span className={`flex-1 px-1 py-1 text-xs min-w-0 truncate ${row.isAssyRow ? 'font-semibold text-blue-900 dark:text-blue-300' : 'text-gray-800 dark:text-gray-200'}`}>
-                              <Highlight text={row.description} query={q} />
-                            </span>
+                            <EditableCell
+                              rowId={row.id}
+                              field="description"
+                              value={row.description}
+                              onUpdate={updateDrawingPart}
+                              query={q}
+                              className={`flex-1 min-w-0 truncate ${row.isAssyRow ? 'font-semibold text-blue-900 dark:text-blue-300' : 'text-gray-800 dark:text-gray-200'}`}
+                            />
                             {isCollapsed && (
                               <span className="text-xs text-gray-400 pr-1 shrink-0">
                                 +{countDescendants(bomRows, row.childPart)}
@@ -556,8 +612,16 @@ export default function BOMTable({ isDark = false, searchRef }) {
                       );
                     }
 
-                    // 재질
+                    // 재질 (ASSY는 고정, 부품은 더블클릭 편집)
                     if (col.key === 'material') {
+                      if (!row.isAssyRow) {
+                        return (
+                          <td key="material" style={{ width: col.w, minWidth: col.w }}
+                            className="border-r border-gray-200 dark:border-gray-700 px-0 py-0">
+                            <EditableCell rowId={row.id} field="material" value={value} onUpdate={updateDrawingPart} query={q} className="text-gray-700 dark:text-gray-300" />
+                          </td>
+                        );
+                      }
                       return (
                         <td key="material" style={{ width: col.w, minWidth: col.w }}
                           className="px-1.5 py-1 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
@@ -572,6 +636,24 @@ export default function BOMTable({ isDark = false, searchRef }) {
                         <td key="level" style={{ width: col.w, minWidth: col.w }}
                           className="px-1.5 py-1 text-xs border-r border-gray-200 dark:border-gray-700 text-center font-bold text-gray-600 dark:text-gray-400">
                           {value}
+                        </td>
+                      );
+                    }
+
+                    // 단위소요량 (부품만 편집 가능)
+                    if (col.key === 'unitQty') {
+                      if (!row.isAssyRow) {
+                        return (
+                          <td key="unitQty" style={{ width: col.w, minWidth: col.w }}
+                            className="border-r border-gray-200 dark:border-gray-700 px-0 py-0">
+                            <EditableCell rowId={row.id} field="unitQty" value={value} onUpdate={updateDrawingPart} align="right" className="text-gray-700 dark:text-gray-300 font-medium" />
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key="unitQty" style={{ width: col.w, minWidth: col.w }}
+                          className="px-1.5 py-1 text-xs border-r border-gray-200 dark:border-gray-700 text-right text-gray-700 dark:text-gray-300">
+                          {value ?? ''}
                         </td>
                       );
                     }
