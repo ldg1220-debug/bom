@@ -191,6 +191,10 @@ function reducer(state, action) {
             if ('description' in fields) up.description = fields.description;
             if ('material' in fields) up.material = fields.material;
             if ('unitQty' in fields) up.qty = Number(fields.unitQty) || p.qty;
+            if ('vendor' in fields) up.vendor = fields.vendor;
+            if ('staNo' in fields) up.staNo = fields.staNo;
+            if ('processType' in fields) up.processType = fields.processType;
+            if ('spec' in fields) up.spec = fields.spec;
             return { ...p, ...up };
           }),
         };
