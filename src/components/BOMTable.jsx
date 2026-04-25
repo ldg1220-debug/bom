@@ -5,6 +5,12 @@ import { useBOM } from '../context/BOMContext';
 const LV_BG_LIGHT = ['', '#FFF9C4', '#C8E6C9', '#DBEAFE', '#EDE9FE', '#FCE7F3', '#FED7AA', '#CFFAFE'];
 const LV_BG_DARK  = ['', '#3B3600', '#0A2E10', '#0C1F3F', '#1E0F3F', '#3F0F24', '#3F1E00', '#0C2F33'];
 
+// 고정 컬럼 (숨길 수 없음)
+const EBOM_FIXED_KEYS = new Set(['_drag', 'seq', 'level', 'no', 'childPart', 'description', '_purchase', 'unitQty', 'qtyTotal', '_link']);
+
+// 부품 데이터에 영속화되는 필드
+const DRAWING_PERSIST_KEYS = new Set(['vendor', 'staNo', 'processType', 'spec']);
+
 function getLevelBg(level, isDark) {
   const arr = isDark ? LV_BG_DARK : LV_BG_LIGHT;
   return arr[level - 1] ?? (isDark ? '#1a2030' : '#F3F4F6');
@@ -103,6 +109,52 @@ function EditableCell({ rowId, field, value, onUpdate, align = 'left', mono = fa
   );
 }
 
+// ── 열 표시/숨기기 관리자 ────────────────────────────────────────
+function ColumnManager({ colDefs, fixedKeys, hiddenCols, onToggle }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  const optional = colDefs.filter((c) => c.label && !fixedKeys.has(c.key));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs border border-gray-300 dark:border-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center gap-1"
+        title="열 표시 설정"
+      >
+        ⚙ 열
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl p-3 w-52">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+              열 표시 설정
+            </p>
+            <div className="space-y-1 max-h-72 overflow-y-auto">
+              {optional.map((col) => (
+                <label
+                  key={col.key}
+                  className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1.5 py-1"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!hiddenCols.has(col.key)}
+                    onChange={() => onToggle(col.key)}
+                    className="w-3.5 h-3.5 accent-blue-600"
+                  />
+                  <span className="text-xs text-gray-700 dark:text-gray-300">{col.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── 수동 연결 모달 ────────────────────────────────────────────
 function LinkDrawingModal({ row, drawings, onLink, onClose }) {
   const [query, setQuery] = useState('');
@@ -164,7 +216,7 @@ const EDITABLE_KEYS = new Set([
 
 function makeColDefs(totalQty) {
   return [
-    { label: '', key: '_drag', w: 20, readOnly: true },       // 드래그 핸들
+    { label: '', key: '_drag', w: 20, readOnly: true },
     { label: '순번', key: 'seq', w: 40, readOnly: true },
     { label: 'LV', key: 'level', w: 32, readOnly: true },
     { label: '품목구분', key: 'itemType', w: 60 },
@@ -178,6 +230,7 @@ function makeColDefs(totalQty) {
     { label: '품명', key: 'description', w: 320 },
     { label: '구매단위', key: '_purchase', w: 56, readOnly: true },
     { label: '재질', key: 'material', w: 88, readOnly: true },
+    { label: '제작업체', key: 'vendor', w: 100 },
     { label: '규격SPEC', key: 'spec', w: 88 },
     { label: 'T', key: 'sizeT', w: 44 },
     { label: 'W', key: 'sizeW', w: 44 },
@@ -189,7 +242,7 @@ function makeColDefs(totalQty) {
     { label: '1량', key: 'qtyPerOne', w: 60, readOnly: true },
     { label: `총(×${totalQty})`, key: 'qtyTotal', w: 80, readOnly: true },
     { label: '비고', key: 'remark', w: 140 },
-    { label: '', key: '_link', w: 32, readOnly: true },        // 연결 버튼
+    { label: '', key: '_link', w: 32, readOnly: true },
   ];
 }
 
@@ -198,35 +251,47 @@ export default function BOMTable({ isDark = false, searchRef }) {
   const { state, dispatch } = useBOM();
   const { bomRows, project, circularWarnings } = state;
 
-  // 접기/펼치기
   const [collapsed, setCollapsed] = useState(new Set());
-
-  // 검색/필터
   const [searchText, setSearchText] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all'); // all | assy | parts
-  const [levelFilter, setLevelFilter] = useState(0);   // 0 = all
-
-  // 드래그
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [levelFilter, setLevelFilter] = useState(0);
   const [dragId, setDragId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
-
-  // 연결 모달
   const [linkRow, setLinkRow] = useState(null);
+
+  // 열 표시/숨김 상태 (localStorage 저장)
+  const [hiddenCols, setHiddenCols] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bom:col:ebom');
+      return new Set(saved ? JSON.parse(saved) : []);
+    } catch { return new Set(); }
+  });
+
+  function toggleCol(key) {
+    if (EBOM_FIXED_KEYS.has(key)) return;
+    setHiddenCols((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      localStorage.setItem('bom:col:ebom', JSON.stringify([...next]));
+      return next;
+    });
+  }
 
   const colDefs = useMemo(() => makeColDefs(project.totalQty), [project.totalQty]);
 
-  // 내부 검색바 ref (외부에서 Ctrl+F로 포커스 가능하게)
+  const visibleColDefs = useMemo(
+    () => colDefs.filter((c) => !hiddenCols.has(c.key)),
+    [colDefs, hiddenCols]
+  );
+
   const internalSearchRef = useRef(null);
   const resolvedSearchRef = searchRef || internalSearchRef;
 
-  // ── 필터/검색 적용 ──
   const isFiltering = searchText.trim() || typeFilter !== 'all' || levelFilter > 0;
 
   const displayRows = useMemo(() => {
     const q = searchText.trim().toLowerCase();
-
     if (!isFiltering) return applyCollapse(bomRows, collapsed);
-
     return bomRows.filter((row) => {
       if (typeFilter === 'assy' && !row.isAssyRow) return false;
       if (typeFilter === 'parts' && row.isAssyRow) return false;
@@ -244,16 +309,13 @@ export default function BOMTable({ isDark = false, searchRef }) {
     });
   }, [bomRows, collapsed, isFiltering, searchText, typeFilter, levelFilter]);
 
-  // ── 트리 연결선 계산 ──
   const treeConnectors = useMemo(() => {
     const assyIdx = {};
     displayRows.forEach((r, i) => { if (r.isAssyRow) assyIdx[r.childPart] = i; });
-
     return displayRows.map((row, i) => {
       if (row.level <= 1) return null;
       const L = row.level;
       const segments = [];
-
       for (let lvl = 2; lvl <= L; lvl++) {
         if (lvl === L) {
           let isLast = true;
@@ -283,7 +345,6 @@ export default function BOMTable({ isDark = false, searchRef }) {
     });
   }, [displayRows]);
 
-  // ── 핸들러 ──
   const toggleCollapse = useCallback((childPart) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -302,7 +363,6 @@ export default function BOMTable({ isDark = false, searchRef }) {
     dispatch({ type: 'UPDATE_DRAWING_PART', drawingId: row.drawingId, isAssyRow: row.isAssyRow, partSeq: row.no, fields: { [field]: value } });
   }, [bomRows, dispatch]);
 
-  // ── 드래그 핸들러 ──
   function handleDragStart(e, row) {
     if (row.isAssyRow) { e.preventDefault(); return; }
     setDragId(row.id);
@@ -347,7 +407,6 @@ export default function BOMTable({ isDark = false, searchRef }) {
     setDragOverId(null);
   }
 
-  // ── 연결 모달 처리 ──
   function handleLink(targetDrawingNumber) {
     if (!linkRow) return;
     dispatch({
@@ -360,7 +419,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
   }
 
   function exportCSV() {
-    const cols = colDefs.filter((c) => c.key !== '_drag' && c.key !== '_link');
+    const cols = visibleColDefs.filter((c) => c.key !== '_drag' && c.key !== '_link');
     const headers = cols.map((c) => c.label).join(',');
     const rows = bomRows.map((row) =>
       cols.map((c) => {
@@ -368,7 +427,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
         return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v;
       }).join(',')
     ).join('\n');
-    const blob = new Blob(['\uFEFF' + headers + '\n' + rows], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['﻿' + headers + '\n' + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -377,7 +436,6 @@ export default function BOMTable({ isDark = false, searchRef }) {
     URL.revokeObjectURL(url);
   }
 
-  // ── 빈 상태 ──
   if (bomRows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-gray-500">
@@ -392,7 +450,6 @@ export default function BOMTable({ isDark = false, searchRef }) {
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900">
-      {/* ── 순환 참조 경고 ── */}
       {circularWarnings?.length > 0 && (
         <div className="mx-4 mt-2 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-700 rounded p-3 text-xs text-red-700 dark:text-red-300 flex items-start justify-between shrink-0">
           <div>
@@ -406,9 +463,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
         </div>
       )}
 
-      {/* ── 검색/필터 바 ── */}
       <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shrink-0 flex flex-wrap items-center gap-2">
-        {/* 검색 입력 */}
         <div className="relative flex-1 min-w-40">
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">🔍</span>
           <input
@@ -426,7 +481,6 @@ export default function BOMTable({ isDark = false, searchRef }) {
           )}
         </div>
 
-        {/* 타입 필터 */}
         <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600 text-xs">
           {[['all', '전체'], ['assy', 'ASSY'], ['parts', '부품']].map(([v, l]) => (
             <button
@@ -437,7 +491,6 @@ export default function BOMTable({ isDark = false, searchRef }) {
           ))}
         </div>
 
-        {/* 레벨 필터 */}
         <select
           value={levelFilter}
           onChange={(e) => setLevelFilter(Number(e.target.value))}
@@ -449,14 +502,12 @@ export default function BOMTable({ isDark = false, searchRef }) {
           ))}
         </select>
 
-        {/* 결과 수 / 접기 버튼들 */}
         <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
           {displayRows.length} / {bomRows.length}행
           {isFiltering && <span className="ml-1 text-blue-500">(필터 중)</span>}
         </span>
 
         <div className="flex items-center gap-1 ml-auto">
-          {/* 레벨 범례 */}
           <div className="hidden md:flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mr-2">
             {LV_BG_LIGHT.slice(1, Math.min(maxLevel, 8)).map((bg, i) => (
               <span key={i} className="flex items-center gap-0.5">
@@ -476,6 +527,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
             }}
             className="text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
           >전체 접기</button>
+          <ColumnManager colDefs={colDefs} fixedKeys={EBOM_FIXED_KEYS} hiddenCols={hiddenCols} onToggle={toggleCol} />
           <button
             onClick={exportCSV}
             className="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded"
@@ -483,15 +535,14 @@ export default function BOMTable({ isDark = false, searchRef }) {
         </div>
       </div>
 
-      {/* ── 테이블 ── */}
       <div className="flex-1 overflow-auto">
         <table
           className="border-collapse"
-          style={{ minWidth: colDefs.reduce((s, c) => s + c.w, 0) + 'px' }}
+          style={{ minWidth: visibleColDefs.reduce((s, c) => s + c.w, 0) + 'px' }}
         >
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-100 dark:bg-gray-800">
-              {colDefs.map((col) => (
+              {visibleColDefs.map((col) => (
                 <th
                   key={col.key}
                   style={{ minWidth: col.w, width: col.w }}
@@ -509,7 +560,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
               const isDragOver = dragOverId === row.id;
               const hasChildren = row.isAssyRow && bomRows.some((r) => r.parentPart === row.childPart);
               const isCollapsed = collapsed.has(row.childPart);
-const q = searchText.trim().toLowerCase();
+              const q = searchText.trim().toLowerCase();
               const isLinked = row.isAssyRow || state.drawings.some((d) => d.drawingNumber === row.childPart);
               const canLink = !row.isAssyRow && !!row.drawingId && !!row.no;
 
@@ -532,10 +583,9 @@ const q = searchText.trim().toLowerCase();
                   onDrop={(e) => handleDrop(e, row)}
                   onDragEnd={handleDragEnd}
                 >
-                  {colDefs.map((col) => {
+                  {visibleColDefs.map((col) => {
                     const value = row[col.key];
 
-                    // 드래그 핸들
                     if (col.key === '_drag') {
                       return (
                         <td key="_drag" style={{ width: col.w, minWidth: col.w }}
@@ -547,7 +597,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 연결 버튼
                     if (col.key === '_link') {
                       return (
                         <td key="_link" style={{ width: col.w, minWidth: col.w }}
@@ -566,7 +615,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 품명 컬럼: 트리 연결선 + 토글 + EditableCell
                     if (col.key === 'description') {
                       const treePrefix = treeConnectors[rowIndex];
                       return (
@@ -604,7 +652,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 자품번
                     if (col.key === 'childPart') {
                       return (
                         <td key="childPart" style={{ width: col.w, minWidth: col.w }}
@@ -616,7 +663,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 구매단위 체크박스 (부품 행만)
                     if (col.key === '_purchase') {
                       if (row.isAssyRow) {
                         return (
@@ -640,7 +686,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 재질 (ASSY는 고정, 부품은 더블클릭 편집)
                     if (col.key === 'material') {
                       if (!row.isAssyRow) {
                         return (
@@ -658,7 +703,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // LV 컬럼
                     if (col.key === 'level') {
                       return (
                         <td key="level" style={{ width: col.w, minWidth: col.w }}
@@ -668,7 +712,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 단위소요량 (부품만 편집 가능, 수량변경은 빨간색 표시)
                     if (col.key === 'unitQty') {
                       if (!row.isAssyRow) {
                         if (row._qtyChangedFrom != null) {
@@ -695,7 +738,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 숫자 수량 컬럼
                     if (col.key === 'qtyPerOne' || col.key === 'qtyTotal') {
                       return (
                         <td key={col.key} style={{ width: col.w, minWidth: col.w }}
@@ -705,7 +747,6 @@ const q = searchText.trim().toLowerCase();
                       );
                     }
 
-                    // 읽기 전용 단순 컬럼
                     if (col.readOnly) {
                       return (
                         <td key={col.key} style={{ width: col.w, minWidth: col.w }}
@@ -716,6 +757,8 @@ const q = searchText.trim().toLowerCase();
                     }
 
                     // ── 편집 가능 컬럼 (더블클릭) ──
+                    const onUpd = (!row.isAssyRow && DRAWING_PERSIST_KEYS.has(col.key))
+                      ? updateDrawingPart : updateRow;
                     return (
                       <td key={col.key} style={{ width: col.w, minWidth: col.w }}
                         className="border-r border-gray-200 dark:border-gray-700 px-0 py-0">
@@ -723,7 +766,7 @@ const q = searchText.trim().toLowerCase();
                           rowId={row.id}
                           field={col.key}
                           value={value}
-                          onUpdate={updateRow}
+                          onUpdate={onUpd}
                           className="dark:text-gray-200"
                         />
                       </td>
@@ -736,7 +779,6 @@ const q = searchText.trim().toLowerCase();
         </table>
       </div>
 
-      {/* 연결 모달 */}
       {linkRow && (
         <LinkDrawingModal
           row={linkRow}

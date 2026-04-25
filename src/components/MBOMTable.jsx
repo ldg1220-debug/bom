@@ -1,22 +1,98 @@
-import { useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useBOM } from '../context/BOMContext';
 
+// 고정 컬럼 (숨길 수 없음)
+const MBOM_FIXED_KEYS = new Set(['no', 'childPart', 'description', 'unit', 'qtyTotal', 'parents']);
+
 const COLS = [
-  { key: 'no',          label: 'No',         w: 40  },
-  { key: 'childPart',   label: '자품번',      w: 160 },
-  { key: 'description', label: '품명',        w: 240 },
-  { key: 'material',    label: '재질',        w: 100 },
-  { key: 'unit',        label: '단위',        w: 48  },
-  { key: 'qtyTotal',    label: '총소요량',    w: 88  },
-  { key: 'parents',     label: '모품번 (출처)', w: 260 },
-  { key: 'remark',      label: '비고',        w: 160 },
+  { key: 'no',          label: 'No',           w: 40  },
+  { key: 'staNo',       label: 'Station',      w: 100 },
+  { key: 'processType', label: '공정명',        w: 100 },
+  { key: 'childPart',   label: '자품번',        w: 160 },
+  { key: 'description', label: '품명',          w: 200 },
+  { key: 'spec',        label: '규격',          w: 120 },
+  { key: 'material',    label: '재질',          w: 100 },
+  { key: 'vendor',      label: '제작업체',      w: 120 },
+  { key: 'unit',        label: '단위',          w: 48  },
+  { key: 'qtyTotal',    label: '총소요량',      w: 88  },
+  { key: 'parents',     label: '모품번 (출처)', w: 220 },
+  { key: 'remark',      label: '비고',          w: 160 },
 ];
+
+// ── 열 표시/숨기기 관리자 ────────────────────────────────────────
+function ColumnManager({ cols, fixedKeys, hiddenCols, onToggle }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  const optional = cols.filter((c) => !fixedKeys.has(c.key));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs border border-gray-300 dark:border-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center gap-1"
+        title="열 표시 설정"
+      >
+        ⚙ 열
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl p-3 w-48">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">
+              열 표시 설정
+            </p>
+            <div className="space-y-1 max-h-72 overflow-y-auto">
+              {optional.map((col) => (
+                <label
+                  key={col.key}
+                  className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1.5 py-1"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!hiddenCols.has(col.key)}
+                    onChange={() => onToggle(col.key)}
+                    className="w-3.5 h-3.5 accent-blue-600"
+                  />
+                  <span className="text-xs text-gray-700 dark:text-gray-300">{col.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 const puKey = (row) => `${row.drawingId}:${row.isAssyRow ? 'assy' : row.no}`;
 
 export default function MBOMTable() {
   const { state } = useBOM();
   const { bomRows, purchaseUnits = new Set(), project } = state;
+
+  // 열 표시/숨김 상태 (localStorage 저장)
+  const [hiddenCols, setHiddenCols] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bom:col:mbom');
+      return new Set(saved ? JSON.parse(saved) : []);
+    } catch { return new Set(); }
+  });
+
+  function toggleCol(key) {
+    if (MBOM_FIXED_KEYS.has(key)) return;
+    setHiddenCols((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      localStorage.setItem('bom:col:mbom', JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  const visibleCols = useMemo(
+    () => COLS.filter((c) => !hiddenCols.has(c.key)),
+    [hiddenCols]
+  );
 
   // 체크된 행을 자품번 기준으로 집계 (동일 자품번 수량 합산)
   const { aggregated, checkedCount } = useMemo(() => {
@@ -27,7 +103,6 @@ export default function MBOMTable() {
       if (!purchaseUnits.has(puKey(row))) continue;
       checkedCount++;
 
-      // 빈 자품번은 drawingId:no 로 구분
       const groupKey = row.childPart || `__${row.drawingId}:${row.no}`;
 
       if (map.has(groupKey)) {
@@ -36,27 +111,46 @@ export default function MBOMTable() {
         if (row.parentPart && !ex.parents.includes(row.parentPart)) {
           ex.parents.push(row.parentPart);
         }
+        // Station/공정명 수집
+        if (row.staNo && !ex.staNoSet.has(row.staNo)) ex.staNoSet.add(row.staNo);
+        if (row.processType && !ex.processTypeSet.has(row.processType)) ex.processTypeSet.add(row.processType);
+        // 규격/재질/제작업체는 첫 값 사용
+        if (!ex.spec && row.spec) ex.spec = row.spec;
+        if (!ex.material && row.material) ex.material = row.material;
+        if (!ex.vendor && row.vendor) ex.vendor = row.vendor;
       } else {
         map.set(groupKey, {
-          childPart:   row.childPart,
-          description: row.description,
-          material:    row.material,
-          unit:        row.unit,
-          qtyTotal:    row.qtyTotal,
-          parents:     row.parentPart ? [row.parentPart] : [],
-          remark:      row.remark || '',
+          childPart:      row.childPart,
+          description:    row.description,
+          spec:           row.spec || '',
+          material:       row.material || '',
+          vendor:         row.vendor || '',
+          unit:           row.unit,
+          qtyTotal:       row.qtyTotal,
+          parents:        row.parentPart ? [row.parentPart] : [],
+          remark:         row.remark || '',
+          staNoSet:       new Set(row.staNo ? [row.staNo] : []),
+          processTypeSet: new Set(row.processType ? [row.processType] : []),
         });
       }
     }
 
-    const aggregated = [...map.values()].map((item, i) => ({ ...item, no: i + 1 }));
+    const aggregated = [...map.values()].map((item, i) => {
+      const { staNoSet, processTypeSet, ...rest } = item;
+      return {
+        ...rest,
+        no: i + 1,
+        staNo: [...staNoSet].join(' / '),
+        processType: [...processTypeSet].join(' / '),
+      };
+    });
     return { aggregated, checkedCount };
   }, [bomRows, purchaseUnits]);
 
   function exportCSV() {
-    const headers = COLS.map((c) => c.label).join(',');
+    const headers = visibleCols.map((c) => c.label).join(',');
     const rows = aggregated.map((item) =>
-      COLS.map((c) => {
+      visibleCols.map((c) => {
         const v = c.key === 'parents'
           ? item.parents.join(' / ')
           : c.key === 'qtyTotal'
@@ -65,7 +159,7 @@ export default function MBOMTable() {
         return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v;
       }).join(',')
     ).join('\n');
-    const blob = new Blob(['\uFEFF' + headers + '\n' + rows], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['﻿' + headers + '\n' + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -100,23 +194,26 @@ export default function MBOMTable() {
             (E-BOM 체크 {checkedCount}행 → 동일 자품번 수량 합산)
           </span>
         </div>
-        <button
-          onClick={exportCSV}
-          className="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded shrink-0"
-        >
-          CSV 내보내기
-        </button>
+        <div className="flex items-center gap-2">
+          <ColumnManager cols={COLS} fixedKeys={MBOM_FIXED_KEYS} hiddenCols={hiddenCols} onToggle={toggleCol} />
+          <button
+            onClick={exportCSV}
+            className="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded shrink-0"
+          >
+            CSV 내보내기
+          </button>
+        </div>
       </div>
 
       {/* 테이블 */}
       <div className="flex-1 overflow-auto">
         <table
           className="border-collapse"
-          style={{ minWidth: COLS.reduce((s, c) => s + c.w, 0) + 'px' }}
+          style={{ minWidth: visibleCols.reduce((s, c) => s + c.w, 0) + 'px' }}
         >
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-100 dark:bg-gray-800">
-              {COLS.map((col) => (
+              {visibleCols.map((col) => (
                 <th
                   key={col.key}
                   style={{ minWidth: col.w, width: col.w }}
@@ -135,30 +232,45 @@ export default function MBOMTable() {
                   idx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'
                 }`}
               >
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-center text-gray-500 dark:text-gray-400">
-                  {item.no}
-                </td>
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 font-mono font-semibold text-blue-700 dark:text-blue-300 whitespace-nowrap">
-                  {item.childPart}
-                </td>
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200">
-                  {item.description}
-                </td>
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
-                  {item.material}
-                </td>
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-center text-gray-600 dark:text-gray-400">
-                  {item.unit}
-                </td>
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-right font-bold text-gray-900 dark:text-white">
-                  {typeof item.qtyTotal === 'number' ? item.qtyTotal.toLocaleString() : item.qtyTotal}
-                </td>
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
-                  {item.parents.join(' / ')}
-                </td>
-                <td className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
-                  {item.remark}
-                </td>
+                {visibleCols.map((col) => {
+                  const value = col.key === 'parents'
+                    ? item.parents.join(' / ')
+                    : item[col.key];
+
+                  if (col.key === 'no') {
+                    return (
+                      <td key="no" style={{ minWidth: col.w, width: col.w }}
+                        className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-center text-gray-500 dark:text-gray-400">
+                        {value}
+                      </td>
+                    );
+                  }
+
+                  if (col.key === 'childPart') {
+                    return (
+                      <td key="childPart" style={{ minWidth: col.w, width: col.w }}
+                        className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 font-mono font-semibold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                        {value}
+                      </td>
+                    );
+                  }
+
+                  if (col.key === 'qtyTotal') {
+                    return (
+                      <td key="qtyTotal" style={{ minWidth: col.w, width: col.w }}
+                        className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-right font-bold text-gray-900 dark:text-white">
+                        {typeof value === 'number' ? value.toLocaleString() : value}
+                      </td>
+                    );
+                  }
+
+                  return (
+                    <td key={col.key} style={{ minWidth: col.w, width: col.w }}
+                      className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
+                      {value || ''}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
