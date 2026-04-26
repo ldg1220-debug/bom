@@ -664,13 +664,16 @@ export default function BOMTable({ isDark = false, searchRef }) {
                     }
 
                     if (col.key === '_purchase') {
-                      if (row.isAssyRow) {
+                      // 루트 ASSY(level=1)는 체크박스 없음; LV2+ ASSY는 조립품 구매단위로 체크 가능
+                      if (row.isAssyRow && row.level <= 1) {
                         return (
                           <td key="_purchase" style={{ width: col.w, minWidth: col.w }}
                             className="border-r border-gray-200 dark:border-gray-700" />
                         );
                       }
-                      const pKey = `${row.drawingId}:${row.no}`;
+                      const pKey = row.isAssyRow
+                        ? `${row.drawingId}:assy`
+                        : `${row.drawingId}:${row.no}`;
                       const checked = state.purchaseUnits?.has(pKey) || false;
                       return (
                         <td key="_purchase" style={{ width: col.w, minWidth: col.w }}
@@ -680,7 +683,7 @@ export default function BOMTable({ isDark = false, searchRef }) {
                             checked={checked}
                             onChange={() => dispatch({ type: 'TOGGLE_PURCHASE_UNIT', key: pKey })}
                             className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
-                            title="구매단위 체크 → M-BOM에 집계"
+                            title={row.isAssyRow ? '조립품 구매단위 체크 → M-BOM에 집계' : '구매단위 체크 → M-BOM에 집계'}
                           />
                         </td>
                       );

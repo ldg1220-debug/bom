@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useBOM } from '../context/BOMContext';
 import DrawingUpload from './DrawingUpload';
@@ -101,6 +101,39 @@ const EMPTY_PART = (seq = 1) => ({
   specRemark: '',
 });
 
+// 드래그로 상하 영역 크기 조절
+function useVerticalSplit(defaultTopPx = 420) {
+  const [topPx, setTopPx] = useState(defaultTopPx);
+  const containerRef = useRef(null);
+  const dragging = useRef(false);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    dragging.current = true;
+
+    function onMove(ev) {
+      if (!dragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const newTop = Math.min(
+        rect.height - 200,
+        Math.max(150, ev.clientY - rect.top)
+      );
+      setTopPx(newTop);
+    }
+
+    function onUp() {
+      dragging.current = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  return { topPx, containerRef, onMouseDown };
+}
+
 export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel }) {
   const { state, dispatch } = useBOM();
   const { drawings } = state;
@@ -110,11 +143,13 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [rev, setRev] = useState('');
   const [parts, setParts] = useState([EMPTY_PART()]);
   const [rawText, setRawText] = useState('');
-  const [mode, setMode] = useState('new'); // 'new' | 'append' | 'revision'
+  const [mode, setMode] = useState('new');
   const [targetDrawingId, setTargetDrawingId] = useState('');
   const isEditMode = !!editDrawing;
 
-  // 재등록 모드: editDrawing prop으로 폼을 채움
+  const uploadRef = useRef(null);
+  const { topPx, containerRef, onMouseDown: onHandleMouseDown } = useVerticalSplit(400);
+
   useEffect(() => {
     if (editDrawing) {
       setDrawingNumber(editDrawing.drawingNumber || '');
@@ -170,7 +205,6 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         el.focus();
       } else if (nextRow >= parts.length) {
         addRow();
-        // 새 행이 렌더된 후 포커스 (다음 틱)
         setTimeout(() => {
           const newEl = document.querySelector(`[data-row="${nextRow}"][data-col="0"]`);
           if (newEl) newEl.focus();
@@ -208,6 +242,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: targetDrawingId, newParts: validParts });
       onDrawingAdded && onDrawingAdded();
       resetForm();
+      uploadRef.current?.clear();
       return;
     }
 
@@ -225,6 +260,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       dispatch({ type: 'APPLY_REVISION', drawingId: targetDrawingId, newParts: validParts });
       onDrawingAdded && onDrawingAdded();
       resetForm();
+      uploadRef.current?.clear();
       return;
     }
 
@@ -252,6 +288,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     });
     onDrawingAdded && onDrawingAdded();
     resetForm();
+    uploadRef.current?.clear();
     if (isEditMode) onEditCancel && onEditCancel();
   }
 
@@ -262,210 +299,231 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const COL_WIDTHS = ['w-12', 'w-40', 'w-44', 'w-28', 'w-14', 'w-16', 'w-36'];
 
   return (
-    <div className="flex flex-col gap-4 h-full">
-      {/* 재등록 모드 배너 */}
-      {isEditMode && (
-        <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-amber-800">
-              수정 모드: {editDrawing.drawingNumber}
-            </p>
-            <p className="text-xs text-amber-600">내용을 수정 후 [BOM에 저장]을 누르세요.</p>
-          </div>
-          <button
-            onClick={() => { resetForm(); onEditCancel && onEditCancel(); }}
-            className="text-amber-500 hover:text-amber-700 text-sm"
-          >
-            ✕ 취소
-          </button>
-        </div>
-      )}
-
-      {/* 이미지 업로드 */}
-      <DrawingUpload onOCRComplete={handleOCRComplete} />
-
-      {/* 모드 토글 (편집 모드에서는 숨김) */}
-      {!isEditMode && drawings.length > 0 && (
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          {[
-            { id: 'new', label: '새 도면 등록', active: 'text-blue-700' },
-            { id: 'append', label: '파트 이어 붙이기', active: 'text-orange-600' },
-            { id: 'revision', label: '리비전 교체', active: 'text-purple-600' },
-          ].map(({ id, label, active }) => (
+    <div
+      ref={containerRef}
+      className="flex flex-col h-full overflow-hidden"
+    >
+      {/* ── 상단 패널 (이미지 + 도면정보) ── */}
+      <div
+        className="flex flex-col gap-3 overflow-y-auto shrink-0 px-0"
+        style={{ height: topPx }}
+      >
+        {/* 재등록 모드 배너 */}
+        {isEditMode && (
+          <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-amber-800">
+                수정 모드: {editDrawing.drawingNumber}
+              </p>
+              <p className="text-xs text-amber-600">내용을 수정 후 [BOM에 저장]을 누르세요.</p>
+            </div>
             <button
-              key={id}
-              onClick={() => { setMode(id); setTargetDrawingId(''); }}
-              className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
-                mode === id ? `bg-white ${active} shadow-sm` : 'text-gray-500 hover:text-gray-700'
-              }`}
+              onClick={() => { resetForm(); onEditCancel && onEditCancel(); }}
+              className="text-amber-500 hover:text-amber-700 text-sm"
             >
-              {label}
+              ✕ 취소
             </button>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* 도면 정보 / 타겟 선택 */}
-      {mode === 'new' || isEditMode ? (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h3 className="text-sm font-bold text-gray-700 mb-3">도면 정보</h3>
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">도면번호 *</label>
-              <input
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
-                value={drawingNumber}
-                onChange={(e) => setDrawingNumber(e.target.value)}
-                placeholder="예: RM-LC01-FC23344"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">도면 제목</label>
-              <input
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="예: FRONT PANEL, WELDED"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 block mb-1">REV</label>
-              <input
-                className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                value={rev}
-                onChange={(e) => setRev(e.target.value)}
-                placeholder="A"
-              />
+        {/* 이미지 업로드 */}
+        <DrawingUpload ref={uploadRef} onOCRComplete={handleOCRComplete} />
+
+        {/* 모드 토글 */}
+        {!isEditMode && drawings.length > 0 && (
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {[
+              { id: 'new', label: '새 도면 등록', active: 'text-blue-700' },
+              { id: 'append', label: '파트 이어 붙이기', active: 'text-orange-600' },
+              { id: 'revision', label: '리비전 교체', active: 'text-purple-600' },
+            ].map(({ id, label, active }) => (
+              <button
+                key={id}
+                onClick={() => { setMode(id); setTargetDrawingId(''); }}
+                className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+                  mode === id ? `bg-white ${active} shadow-sm` : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 도면 정보 / 타겟 선택 */}
+        {mode === 'new' || isEditMode ? (
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <h3 className="text-sm font-bold text-gray-700 mb-3">도면 정보</h3>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">도면번호 *</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
+                  value={drawingNumber}
+                  onChange={(e) => setDrawingNumber(e.target.value)}
+                  placeholder="예: RM-LC01-FC23344"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">도면 제목</label>
+                <input
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="예: FRONT PANEL, WELDED"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">REV</label>
+                <input
+                  className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                  value={rev}
+                  onChange={(e) => setRev(e.target.value)}
+                  placeholder="A"
+                />
+              </div>
             </div>
           </div>
-        </div>
-      ) : mode === 'append' ? (
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-          <h3 className="text-sm font-bold text-orange-700 mb-1">어느 도면에 이어 붙일까요?</h3>
-          <p className="text-xs text-orange-500 mb-3">도면번호가 없는 분할 스크린샷을 올렸을 때 사용하세요. 최근 작업 도면이 위에 표시됩니다.</p>
-          <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="orange" />
-        </div>
-      ) : (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-          <h3 className="text-sm font-bold text-purple-700 mb-1">리비전 교체 — 대상 도면 선택</h3>
-          <p className="text-xs text-purple-500 mb-3">
-            새 리비전 파트리스트를 인식한 뒤 선택한 도면과 비교합니다.
-            삭제된 파트는 <span className="line-through">취소선</span>으로, 수량 변경은 <span className="text-red-500 font-bold">빨간 숫자</span>로 표시됩니다.
-          </p>
-          <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="purple" />
-        </div>
-      )}
-
-      {/* 파트리스트 편집 테이블 */}
-      <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden" style={{ minHeight: 200 }}>
-        <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-700">
-            {mode === 'revision' ? '새 리비전 파트리스트' : '파트리스트'}{' '}
-            <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
-          </h3>
-          <span className="text-xs text-gray-400">Tab 키로 다음 셀 이동</span>
-        </div>
-
-        <div className="overflow-auto flex-1">
-          <table className="min-w-full text-xs">
-            <thead className="bg-gray-50 sticky top-0">
-              <tr>
-                {COL_LABELS.map((label, i) => (
-                  <th
-                    key={i}
-                    className={`${COL_WIDTHS[i]} px-2 py-2 text-left font-semibold text-gray-600 border-b border-gray-200 whitespace-nowrap`}
-                  >
-                    {label}
-                  </th>
-                ))}
-                <th className="w-8 border-b border-gray-200" />
-              </tr>
-            </thead>
-            <tbody>
-              {parts.map((part, rowIdx) => (
-                <tr key={part.id} className="border-b border-gray-100 hover:bg-blue-50">
-                  {COLS.map((col, colIdx) => (
-                    <td key={col} className="px-1 py-0.5">
-                      <input
-                        data-row={rowIdx}
-                        data-col={colIdx}
-                        className={`w-full border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0.5 bg-transparent focus:bg-white text-xs ${
-                          col === 'seq' ? 'text-center' : ''
-                        }`}
-                        value={part[col] ?? ''}
-                        onChange={(e) => updatePart(part.id, col, e.target.value)}
-                        onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx, COLS.length)}
-                        type={col === 'seq' || col === 'qty' ? 'number' : 'text'}
-                        min={col === 'qty' ? 0 : undefined}
-                      />
-                    </td>
-                  ))}
-                  <td className="px-1 py-0.5 text-center">
-                    <button
-                      onClick={() => deleteRow(part.id)}
-                      className="text-red-400 hover:text-red-600 text-xs"
-                      title="행 삭제"
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="px-4 py-2 border-t border-gray-200">
-          <button
-            onClick={addRow}
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-          >
-            + 행 추가
-          </button>
-        </div>
+        ) : mode === 'append' ? (
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <h3 className="text-sm font-bold text-orange-700 mb-1">어느 도면에 이어 붙일까요?</h3>
+            <p className="text-xs text-orange-500 mb-3">도면번호가 없는 분할 스크린샷을 올렸을 때 사용하세요.</p>
+            <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="orange" />
+          </div>
+        ) : (
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <h3 className="text-sm font-bold text-purple-700 mb-1">리비전 교체 — 대상 도면 선택</h3>
+            <p className="text-xs text-purple-500 mb-3">
+              새 리비전 파트리스트를 인식한 뒤 선택한 도면과 비교합니다.
+            </p>
+            <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="purple" />
+          </div>
+        )}
       </div>
 
-      {/* Raw OCR 텍스트 (디버그) */}
-      {rawText && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
-          <button
-            onClick={() => setShowRaw((v) => !v)}
-            className="w-full px-4 py-2 text-xs text-gray-500 flex items-center justify-between hover:bg-gray-100"
-          >
-            <span>🔍 Raw OCR 텍스트 (파싱 확인용)</span>
-            <span>{showRaw ? '▲ 접기' : '▼ 펼치기'}</span>
-          </button>
-          {showRaw && (
-            <pre className="px-4 py-3 text-xs text-gray-600 overflow-auto max-h-64 whitespace-pre-wrap border-t border-gray-200">
-              {rawText}
-            </pre>
-          )}
-        </div>
-      )}
+      {/* ── 드래그 핸들 ── */}
+      <div
+        onMouseDown={onHandleMouseDown}
+        className="shrink-0 flex items-center justify-center bg-gray-100 hover:bg-blue-100 transition-colors cursor-row-resize select-none"
+        style={{ height: 10 }}
+        title="드래그하여 영역 크기 조절"
+      >
+        <div className="w-10 h-1 rounded-full bg-gray-400" />
+      </div>
 
-      {/* BOM에 추가/저장 버튼 */}
-      <div className="flex gap-2">
-        {isEditMode && (
-          <button
-            onClick={() => { resetForm(); onEditCancel && onEditCancel(); }}
-            className="px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 rounded-lg text-sm"
-          >
-            취소
-          </button>
+      {/* ── 하단 패널 (파트리스트 + 버튼) ── */}
+      <div className="flex-1 flex flex-col gap-3 overflow-hidden min-h-0">
+        {/* 파트리스트 편집 테이블 */}
+        <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden flex-1 min-h-0">
+          <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between shrink-0">
+            <h3 className="text-sm font-bold text-gray-700">
+              {mode === 'revision' ? '새 리비전 파트리스트' : '파트리스트'}{' '}
+              <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
+            </h3>
+            <span className="text-xs text-gray-400">Tab 키로 다음 셀 이동</span>
+          </div>
+
+          <div className="overflow-auto flex-1">
+            <table className="min-w-full text-xs">
+              <thead className="bg-gray-50 sticky top-0">
+                <tr>
+                  {COL_LABELS.map((label, i) => (
+                    <th
+                      key={i}
+                      className={`${COL_WIDTHS[i]} px-2 py-2 text-left font-semibold text-gray-600 border-b border-gray-200 whitespace-nowrap`}
+                    >
+                      {label}
+                    </th>
+                  ))}
+                  <th className="w-8 border-b border-gray-200" />
+                </tr>
+              </thead>
+              <tbody>
+                {parts.map((part, rowIdx) => (
+                  <tr key={part.id} className="border-b border-gray-100 hover:bg-blue-50">
+                    {COLS.map((col, colIdx) => (
+                      <td key={col} className="px-1 py-0.5">
+                        <input
+                          data-row={rowIdx}
+                          data-col={colIdx}
+                          className={`w-full border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0.5 bg-transparent focus:bg-white text-xs ${
+                            col === 'seq' ? 'text-center' : ''
+                          }`}
+                          value={part[col] ?? ''}
+                          onChange={(e) => updatePart(part.id, col, e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx, COLS.length)}
+                          type={col === 'seq' || col === 'qty' ? 'number' : 'text'}
+                          min={col === 'qty' ? 0 : undefined}
+                        />
+                      </td>
+                    ))}
+                    <td className="px-1 py-0.5 text-center">
+                      <button
+                        onClick={() => deleteRow(part.id)}
+                        className="text-red-400 hover:text-red-600 text-xs"
+                        title="행 삭제"
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-4 py-2 border-t border-gray-200 shrink-0">
+            <button
+              onClick={addRow}
+              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+            >
+              + 행 추가
+            </button>
+          </div>
+        </div>
+
+        {/* Raw OCR 텍스트 */}
+        {rawText && (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden shrink-0">
+            <button
+              onClick={() => setShowRaw((v) => !v)}
+              className="w-full px-4 py-2 text-xs text-gray-500 flex items-center justify-between hover:bg-gray-100"
+            >
+              <span>🔍 Raw OCR 텍스트 (파싱 확인용)</span>
+              <span>{showRaw ? '▲ 접기' : '▼ 펼치기'}</span>
+            </button>
+            {showRaw && (
+              <pre className="px-4 py-3 text-xs text-gray-600 overflow-auto max-h-48 whitespace-pre-wrap border-t border-gray-200">
+                {rawText}
+              </pre>
+            )}
+          </div>
         )}
-        <button
-          onClick={addToBOM}
-          className={`flex-1 font-bold py-3 rounded-lg text-sm shadow transition-colors text-white ${
-            mode === 'append' ? 'bg-orange-600 hover:bg-orange-700' :
-            mode === 'revision' ? 'bg-purple-600 hover:bg-purple-700' :
-            'bg-blue-700 hover:bg-blue-800'
-          }`}
-        >
-          {isEditMode ? 'BOM에 저장 (수정)' :
-           mode === 'append' ? '선택 도면에 파트 추가' :
-           mode === 'revision' ? '리비전 적용' :
-           'BOM에 추가'}
-        </button>
+
+        {/* BOM에 추가/저장 버튼 */}
+        <div className="flex gap-2 shrink-0">
+          {isEditMode && (
+            <button
+              onClick={() => { resetForm(); onEditCancel && onEditCancel(); }}
+              className="px-6 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 rounded-lg text-sm"
+            >
+              취소
+            </button>
+          )}
+          <button
+            onClick={addToBOM}
+            className={`flex-1 font-bold py-3 rounded-lg text-sm shadow transition-colors text-white ${
+              mode === 'append' ? 'bg-orange-600 hover:bg-orange-700' :
+              mode === 'revision' ? 'bg-purple-600 hover:bg-purple-700' :
+              'bg-blue-700 hover:bg-blue-800'
+            }`}
+          >
+            {isEditMode ? 'BOM에 저장 (수정)' :
+             mode === 'append' ? '선택 도면에 파트 추가' :
+             mode === 'revision' ? '리비전 적용' :
+             'BOM에 추가'}
+          </button>
+        </div>
       </div>
     </div>
   );

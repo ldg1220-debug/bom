@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import Tesseract from 'tesseract.js';
 import { parseOCRResult } from '../utils/ocrParser';
 import { extractBOMWithGemini } from '../utils/visionOCR';
@@ -34,11 +34,10 @@ function otsuThreshold(gray, total) {
  */
 function removeBorderLines(d, w, h) {
   const DARK = 120;
-  const PAD = 2;    // 선 제거 후 양방향으로 확장할 픽셀 수 (잔여 선 픽셀 제거)
-  const MIN_H = Math.floor(w * 0.18); // 수평선: 이미지 너비의 18% 이상
-  const MIN_V = Math.floor(h * 0.07); // 수직선: 이미지 높이의 7% 이상
+  const PAD = 2;
+  const MIN_H = Math.floor(w * 0.18);
+  const MIN_V = Math.floor(h * 0.07);
 
-  // 수평 직선 제거 (y축 ±PAD 확장)
   for (let y = 0; y < h; y++) {
     let start = -1;
     for (let x = 0; x <= w; x++) {
@@ -60,7 +59,6 @@ function removeBorderLines(d, w, h) {
     }
   }
 
-  // 수직 직선 제거 (x축 ±PAD 확장)
   for (let x = 0; x < w; x++) {
     let start = -1;
     for (let y = 0; y <= h; y++) {
@@ -83,13 +81,6 @@ function removeBorderLines(d, w, h) {
   }
 }
 
-/**
- * OCR 전처리 파이프라인:
- *  1. 3000px 업스케일 (2000 → 3000: 세밀한 문자 보존)
- *  2. 그레이스케일 변환
- *  3. 표 테두리 직선 제거 (OCR 오독 방지)
- *  4. Otsu 이진화 → 순수 흑백 (선형 대비보다 OCR 정확도 대폭 향상)
- */
 async function preprocessImageForOCR(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -112,7 +103,6 @@ async function preprocessImageForOCR(file) {
         const imageData = ctx.getImageData(0, 0, w, h);
         const d = imageData.data;
 
-        // 1) 그레이스케일 변환
         const gray = new Uint8Array(total);
         for (let i = 0; i < total; i++) {
           gray[i] = Math.round(0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]);
@@ -120,13 +110,10 @@ async function preprocessImageForOCR(file) {
           d[i * 4 + 3] = 255;
         }
 
-        // 2) 표 테두리 직선 제거
         removeBorderLines(d, w, h);
 
-        // 3) 테두리 제거 결과를 gray 배열에 동기화
         for (let i = 0; i < total; i++) gray[i] = d[i * 4];
 
-        // 4) Otsu 이진화 → 순수 흑백
         const thresh = otsuThreshold(gray, total);
         for (let i = 0; i < total; i++) {
           const v = gray[i] < thresh ? 0 : 255;
@@ -146,7 +133,7 @@ async function preprocessImageForOCR(file) {
   });
 }
 
-export default function DrawingUpload({ onOCRComplete }) {
+const DrawingUpload = forwardRef(function DrawingUpload({ onOCRComplete }, ref) {
   const [imageUrl, setImageUrl] = useState(null);
   const [currentFile, setCurrentFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -160,6 +147,36 @@ export default function DrawingUpload({ onOCRComplete }) {
   const fileInputRef = useRef(null);
   const dropRef = useRef(null);
   const retryTimerRef = useRef(null);
+  // blob URL을 ref로 관리해 교체 시 이전 URL 즉시 해제
+  const blobUrlRef = useRef(null);
+
+  function revokeCurrentBlob() {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+  }
+
+  function setDisplayImage(file) {
+    revokeCurrentBlob();
+    const url = URL.createObjectURL(file);
+    blobUrlRef.current = url;
+    setImageUrl(url);
+  }
+
+  function clearImage() {
+    revokeCurrentBlob();
+    setImageUrl(null);
+    setCurrentFile(null);
+    setOcrStatus('idle');
+    setOcrProgress(0);
+    setOcrMessage('');
+    clearInterval(retryTimerRef.current);
+    setRetryCountdown(0);
+  }
+
+  // OCREditor에서 BOM 등록 후 이미지를 초기화할 수 있도록 ref 노출
+  useImperativeHandle(ref, () => ({ clear: clearImage }), []);
 
   // ── Gemini Vision AI 인식 ──────────────────────────────────────
   const processWithClaude = useCallback(async (file) => {
@@ -190,7 +207,6 @@ export default function DrawingUpload({ onOCRComplete }) {
         setShowKeyInput(true);
         setOcrStatus('idle');
       } else if (err.retrySec) {
-        // 429: 카운트다운 후 자동 재시도
         let remaining = err.retrySec;
         setOcrStatus('processing');
         setRetryCountdown(remaining);
@@ -221,8 +237,7 @@ export default function DrawingUpload({ onOCRComplete }) {
       return;
     }
 
-    const url = URL.createObjectURL(file);
-    setImageUrl(url);
+    setDisplayImage(file);
     setCurrentFile(file);
     setOcrStatus('processing');
     setOcrProgress(0);
@@ -241,8 +256,8 @@ export default function DrawingUpload({ onOCRComplete }) {
             setOcrMessage(m.status);
           }
         },
-        tessedit_pageseg_mode: '6',    // uniform text block — 파트리스트 표에 최적
-        tessedit_ocr_engine_mode: '1', // LSTM 신경망 전용 (정확도 향상)
+        tessedit_pageseg_mode: '6',
+        tessedit_ocr_engine_mode: '1',
         preserve_interword_spaces: '1',
       });
 
@@ -257,6 +272,7 @@ export default function DrawingUpload({ onOCRComplete }) {
     }
   }, [onOCRComplete]);
 
+  // 붙여넣기: API 키가 있으면 자동으로 Gemini 분석
   useEffect(() => {
     const handlePaste = (e) => {
       const items = e.clipboardData?.items;
@@ -264,14 +280,25 @@ export default function DrawingUpload({ onOCRComplete }) {
       for (const item of items) {
         if (item.type.startsWith('image/')) {
           const file = item.getAsFile();
-          if (file) { setCurrentFile(file); processImage(file); }
+          if (!file) break;
+          setDisplayImage(file);
+          setCurrentFile(file);
+          const hasKey = !!localStorage.getItem(STORAGE_KEY);
+          if (hasKey) {
+            processWithClaude(file);
+          } else {
+            processImage(file);
+          }
           break;
         }
       }
     };
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [processImage]);
+  }, [processImage, processWithClaude]);
+
+  // 컴포넌트 언마운트 시 blob URL 해제
+  useEffect(() => () => revokeCurrentBlob(), []);
 
   function handleDragOver(e) { e.preventDefault(); setIsDragging(true); }
   function handleDragLeave() { setIsDragging(false); }
@@ -279,11 +306,21 @@ export default function DrawingUpload({ onOCRComplete }) {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) { setCurrentFile(file); processImage(file); }
+    if (file) {
+      setDisplayImage(file);
+      setCurrentFile(file);
+      const hasKey = !!localStorage.getItem(STORAGE_KEY);
+      if (hasKey) processWithClaude(file); else processImage(file);
+    }
   }
   function handleFileSelect(e) {
     const file = e.target.files[0];
-    if (file) { setCurrentFile(file); processImage(file); }
+    if (file) {
+      setDisplayImage(file);
+      setCurrentFile(file);
+      const hasKey = !!localStorage.getItem(STORAGE_KEY);
+      if (hasKey) processWithClaude(file); else processImage(file);
+    }
     e.target.value = '';
   }
   function saveApiKey() {
@@ -294,15 +331,6 @@ export default function DrawingUpload({ onOCRComplete }) {
     setShowKeyInput(false);
     setKeyDraft('');
     if (currentFile) processWithClaude(currentFile);
-  }
-
-  function clearImage() {
-    if (imageUrl) URL.revokeObjectURL(imageUrl);
-    setImageUrl(null);
-    setCurrentFile(null);
-    setOcrStatus('idle');
-    setOcrProgress(0);
-    setOcrMessage('');
   }
 
   return (
@@ -328,7 +356,11 @@ export default function DrawingUpload({ onOCRComplete }) {
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="text-5xl mb-3 text-gray-300">📋</div>
             <p className="text-gray-600 font-medium mb-1">파트리스트 스크린샷을 여기에 붙여넣으세요</p>
-            <p className="text-gray-400 text-sm mb-3">Ctrl+V · 드래그 앤 드롭 · 파일 선택</p>
+            <p className="text-gray-400 text-sm mb-1">Ctrl+V · 드래그 앤 드롭 · 파일 선택</p>
+            {apiKey
+              ? <p className="text-purple-500 text-xs mb-3">✨ API 키 설정됨 — 붙여넣으면 자동으로 Gemini 분석</p>
+              : <p className="text-gray-400 text-xs mb-3">API 키 없음 — Tesseract OCR 사용 (🔑 버튼으로 설정)</p>
+            }
             <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded">
               파일 선택
             </button>
@@ -338,7 +370,7 @@ export default function DrawingUpload({ onOCRComplete }) {
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
 
-      {/* AI 인식 버튼 (이미지가 있고 idle/done/error 상태일 때) */}
+      {/* AI 인식 버튼 */}
       {currentFile && ocrStatus !== 'processing' && (
         <div className="flex gap-2">
           <button
@@ -363,14 +395,14 @@ export default function DrawingUpload({ onOCRComplete }) {
         </div>
       )}
 
-      {/* API 키 입력 모달 */}
+      {/* API 키 입력 */}
       {showKeyInput && (
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex flex-col gap-2">
-          <p className="text-xs text-purple-800 font-medium">Anthropic API 키 입력</p>
+          <p className="text-xs text-purple-800 font-medium">Google AI API 키 입력</p>
           <p className="text-xs text-purple-600">
             <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer"
                className="underline">aistudio.google.com/apikey</a>에서 무료로 발급받으세요.
-            키는 이 브라우저에만 저장됩니다.
+            키는 이 브라우저에만 저장됩니다. 한 번 입력하면 붙여넣기 시 자동 분석됩니다.
           </p>
           <input
             type="password"
@@ -418,4 +450,6 @@ export default function DrawingUpload({ onOCRComplete }) {
       )}
     </div>
   );
-}
+});
+
+export default DrawingUpload;

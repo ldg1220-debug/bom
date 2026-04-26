@@ -60,7 +60,7 @@ export function buildBOMRows(drawings) {
   const rows = [];
   let globalSeq = 1;
 
-  function addDrawingRows(drawing, parentPartNumber, level, multiplier, visitedPath) {
+  function addDrawingRows(drawing, parentPartNumber, level, multiplier, visitedPath, parentPartSeq = 0) {
     // 순환 참조 방지
     if (visitedPath.has(drawing.drawingNumber)) return;
 
@@ -78,7 +78,7 @@ export function buildBOMRows(drawings) {
       drawingDate: '',
       parentPart: parentPartNumber,
       rev: drawing.rev,
-      no: 0,
+      no: parentPartSeq,
       childPart: drawing.drawingNumber,
       description: drawing.title,
       material: 'ASSY',
@@ -110,7 +110,8 @@ export function buildBOMRows(drawings) {
           drawing.drawingNumber,
           level + 1,
           part.qty * multiplier,
-          newVisited
+          newVisited,
+          part.seq  // 부모 파트리스트의 seq를 NO로 전달
         );
       } else {
         // 일반 파트 행
