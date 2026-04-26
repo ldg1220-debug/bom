@@ -1,0 +1,97 @@
+{
+  "name": "bom",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "electron:dev": "concurrently -k -n Vite,Electron -c cyan,yellow \"vite\" \"wait-on http://localhost:5173 && cross-env ELECTRON_DEV=true electron electron/main.cjs\"",
+    "electron:build": "cross-env ELECTRON_BUILD=true vite build && electron-builder",
+    "electron:build:win": "cross-env ELECTRON_BUILD=true vite build && electron-builder --win",
+    "electron:build:mac": "cross-env ELECTRON_BUILD=true vite build && electron-builder --mac",
+    "electron:build:linux": "cross-env ELECTRON_BUILD=true vite build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.bombuilder.app",
+    "productName": "BOM Builder",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "BOM Builder"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Office"
+    }
+  },
+  "dependencies": {
+    "dexie": "^4.4.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tesseract.js": "^7.0.0",
+    "uuid": "^13.0.0",
+    "xlsx-js-style": "^1.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.5.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
+    "electron": "^35.7.5",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^4.2.2",
+    "vite": "^8.0.4",
+    "wait-on": "^8.0.5"
+  }
+}
