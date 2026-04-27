@@ -1,55 +1,10 @@
 import { useState } from 'react';
 import { useBOM } from '../context/BOMContext';
-import { exportToExcel } from '../utils/excelExport';
 import ProjectSettingsModal from './ProjectSettingsModal';
 
-export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar }) {
-  const { state, dispatch } = useBOM();
+export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar, onOpenExport, onOpenImport }) {
+  const { state } = useBOM();
   const [showSettings, setShowSettings] = useState(false);
-  const [exporting, setExporting] = useState(false);
-
-  function handleExcelExport() {
-    setExporting(true);
-    try {
-      exportToExcel(state);
-    } catch (err) {
-      alert('Excel 내보내기 실패: ' + err.message);
-      console.error(err);
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  function handleJSONExport() {
-    const { bomRows, circularWarnings, ...exportData } = state;
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    a.download = `BOM_${state.project.name}_${today}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function handleJSONImport(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = JSON.parse(ev.target.result);
-        if (!data.project) throw new Error('유효하지 않은 BOM 파일입니다.');
-        dispatch({ type: 'LOAD_PROJECT', data });
-      } catch (err) {
-        alert('JSON 파일을 읽을 수 없습니다: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  }
 
   const { project, drawings, bomRows } = state;
 
@@ -105,35 +60,26 @@ export default function Header({ activeTab, setActiveTab, onChangeProject, isDar
           ))}
         </div>
 
-        {/* 오른쪽: 내보내기 / 불러오기 / 다크모드 / 프로젝트 변경 */}
+        {/* 오른쪽: Excel / 다크모드 / 프로젝트 변경 */}
         <div className="flex items-center gap-1.5">
           {/* Excel 내보내기 */}
           <button
-            onClick={handleExcelExport}
-            disabled={exporting || bomRows.length === 0}
+            onClick={onOpenExport}
+            disabled={bomRows.length === 0}
             className="bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs px-3 py-1.5 rounded font-medium hidden sm:block"
             title="Excel(.xlsx) 내보내기 (Ctrl+E)"
           >
-            {exporting ? '생성 중...' : '📊 Excel'}
+            EXCEL 내보내기
           </button>
 
-          {/* JSON 내보내기 */}
+          {/* Excel 불러오기 */}
           <button
-            onClick={handleJSONExport}
-            className="bg-teal-600 hover:bg-teal-700 text-white text-xs px-3 py-1.5 rounded font-medium hidden sm:block"
-            title="JSON 백업 내보내기"
+            onClick={onOpenImport}
+            className="bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded font-medium hidden sm:block"
+            title="Excel 파일 불러오기"
           >
-            💾 JSON
+            EXCEL 불러오기
           </button>
-
-          {/* JSON 불러오기 */}
-          <label
-            className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs px-3 py-1.5 rounded font-medium cursor-pointer hidden sm:block"
-            title="JSON 파일 불러오기"
-          >
-            📂 불러오기
-            <input type="file" accept=".json" className="hidden" onChange={handleJSONImport} />
-          </label>
 
           {/* 다크모드 토글 */}
           <button

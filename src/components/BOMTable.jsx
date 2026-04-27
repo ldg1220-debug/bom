@@ -569,17 +569,6 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
             >행 삭제 ({checkedRowIds.size})</button>
           )}
           <ColumnManager colDefs={colDefs} fixedKeys={EBOM_FIXED_KEYS} hiddenCols={hiddenCols} onToggle={toggleCol} />
-          {onOpenImport && (
-            <button onClick={onOpenImport} className="text-xs border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 px-2.5 py-1 rounded">
-              Excel 불러오기
-            </button>
-          )}
-          {onOpenExport && (
-            <button onClick={onOpenExport} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded">
-              Excel 내보내기
-            </button>
-          )}
-          <button onClick={exportCSV} className="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded">CSV</button>
         </div>
       </div>
 

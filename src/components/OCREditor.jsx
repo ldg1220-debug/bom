@@ -124,19 +124,30 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       setRawText(editDrawing.rawOcr || '');
       setParts(
         editDrawing.parts.length > 0
-          ? editDrawing.parts.map((p) => ({ ...p, id: uuidv4() }))
+          ? [...editDrawing.parts]
+              .sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0))
+              .map((p) => ({ ...p, id: uuidv4() }))
           : [EMPTY_PART()]
       );
     }
   }, [editDrawing]);
 
   function handleOCRComplete(parsed) {
-    setDrawingNumber(parsed.drawingNumber || '');
-    setTitle(parsed.title || '');
-    setRev(parsed.rev || '');
-    setRawText(parsed.rawText || '');
+    if (parsed.drawingNumber) setDrawingNumber(parsed.drawingNumber);
+    if (parsed.title) setTitle(parsed.title);
+    if (parsed.rev) setRev(parsed.rev);
+    setRawText((prev) => prev ? prev + '\n\n---\n\n' + (parsed.rawText || '') : (parsed.rawText || ''));
+
     if (parsed.parts && parsed.parts.length > 0) {
-      setParts(parsed.parts.map((p) => ({ ...p, id: uuidv4() })));
+      const newParsed = parsed.parts.map((p) => ({ ...p, id: uuidv4() }));
+      setParts((prev) => {
+        const hasValid = prev.some((p) => p.partNumber || p.description);
+        if (!hasValid) return newParsed;
+        // 이미 파트가 있으면 seq 기준으로 이어붙이기 (중복 seq 제외)
+        const existingSeqs = new Set(prev.map((p) => String(p.seq)));
+        const toAdd = newParsed.filter((p) => !existingSeqs.has(String(p.seq)));
+        return [...prev, ...toAdd].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+      });
     }
   }
 
@@ -422,12 +433,19 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
             </table>
           </div>
 
-          <div className="px-4 py-2 border-t border-gray-200 shrink-0">
+          <div className="px-4 py-2 border-t border-gray-200 shrink-0 flex items-center justify-between">
             <button
               onClick={addRow}
               className="text-blue-600 hover:text-blue-800 text-sm font-medium"
             >
               + 행 추가
+            </button>
+            <button
+              onClick={() => setParts([EMPTY_PART()])}
+              className="text-xs text-red-400 hover:text-red-600"
+              title="파트리스트 전체 초기화"
+            >
+              파트 초기화
             </button>
           </div>
         </div>

@@ -192,6 +192,8 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
         isDark={isDark}
         onToggleDark={onToggleDark}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
+        onOpenExport={() => { if (state.bomRows.length > 0) setShowExportDialog(true); }}
+        onOpenImport={() => importInputRef.current?.click()}
       />
       <div className="flex flex-1 overflow-hidden relative">
         {/* 모바일 오버레이 */}

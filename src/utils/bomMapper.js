@@ -84,7 +84,8 @@ export function buildBOMRows(drawings) {
       isAssyRow: true,
     });
 
-    for (const part of drawing.parts) {
+    const sortedParts = [...drawing.parts].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+    for (const part of sortedParts) {
       const childDrawing = part._noChild ? null : drawingMap.get(part.partNumber);
 
       if (childDrawing) {
