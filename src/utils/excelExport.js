@@ -252,3 +252,125 @@ export function exportToExcel(state) {
 
   XLSX.writeFile(wb, `BOM_${project.name}_${today}.xlsx`);
 }
+
+// ── M-BOM 내보내기 ───────────────────────────────────────────────
+
+const MBOM_COLS = [
+  { key: 'no',          label: 'No',           w: 5  },
+  { key: 'staNo',       label: 'Station',      w: 14 },
+  { key: 'processType', label: '공정명',        w: 12 },
+  { key: 'childPart',   label: '자품번',        w: 22 },
+  { key: 'description', label: '품명',          w: 28 },
+  { key: 'spec',        label: '규격',          w: 14 },
+  { key: 'material',    label: '재질',          w: 12 },
+  { key: 'vendor',      label: '제작업체',      w: 14 },
+  { key: 'unit',        label: '단위',          w: 6  },
+  { key: 'qtyTotal',    label: '총소요량',      w: 12 },
+  { key: 'parents',     label: '모품번 (출처)', w: 28 },
+  { key: 'remark',      label: '비고',          w: 20 },
+];
+
+function puKey(row) {
+  return `${row.drawingId}:${row.isAssyRow ? 'assy' : row.no}`;
+}
+
+export function exportMBOMToExcel(state) {
+  const { project, bomRows, purchaseUnits = new Set(), mbomOverrides = {} } = state;
+  const today = datestamp();
+
+  // 집계 (MBOMTable과 동일 로직)
+  const map = new Map();
+  for (const row of bomRows) {
+    if (!purchaseUnits.has(puKey(row))) continue;
+    const groupKey = row.childPart || `__${row.drawingId}:${row.no}`;
+    if (map.has(groupKey)) {
+      const ex = map.get(groupKey);
+      ex.qtyTotal += row.qtyTotal;
+      if (row.parentPart && !ex.parents.includes(row.parentPart)) ex.parents.push(row.parentPart);
+      if (row.staNo && !ex.staNoSet.has(row.staNo)) ex.staNoSet.add(row.staNo);
+      if (row.processType && !ex.processTypeSet.has(row.processType)) ex.processTypeSet.add(row.processType);
+      if (!ex.spec && row.spec) ex.spec = row.spec;
+      if (!ex.material && row.material) ex.material = row.material;
+      if (!ex.vendor && row.vendor) ex.vendor = row.vendor;
+    } else {
+      map.set(groupKey, {
+        childPart: row.childPart,
+        description: row.description,
+        spec: row.spec || '',
+        material: row.material || '',
+        vendor: row.vendor || '',
+        unit: row.unit,
+        qtyTotal: row.qtyTotal,
+        parents: row.parentPart ? [row.parentPart] : [],
+        remark: row.remark || '',
+        staNoSet: new Set(row.staNo ? [row.staNo] : []),
+        processTypeSet: new Set(row.processType ? [row.processType] : []),
+      });
+    }
+  }
+
+  const aggregated = [...map.values()].map((item, i) => {
+    const { staNoSet, processTypeSet, ...rest } = item;
+    const base = {
+      ...rest,
+      no: i + 1,
+      staNo: [...staNoSet].join(' / '),
+      processType: [...processTypeSet].join(' / '),
+    };
+    const overrides = mbomOverrides[base.childPart] || {};
+    return { ...base, ...overrides };
+  });
+
+  if (aggregated.length === 0) {
+    alert('M-BOM에 집계된 항목이 없습니다.\nE-BOM 탭에서 구매단위 체크박스를 선택해주세요.');
+    return;
+  }
+
+  const titleStyle = {
+    font: { bold: true, sz: 13, color: { rgb: 'FFFFFF' }, name: '맑은 고딕' },
+    fill: { fgColor: { rgb: '1F4E79' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border: border('thick'),
+  };
+  const infoStyle = makeStyle({ bg: 'DEEAF1', sz: 10 });
+  const H = hdrStyle();
+
+  const NCOLS = MBOM_COLS.length;
+  const row1 = [cv(`${project.name} — M-BOM (구매 목록)`, titleStyle)];
+  for (let i = 1; i < NCOLS; i++) row1.push(cv('', titleStyle));
+
+  const row2 = [cv(`기준일: ${project.baseDate || '-'}    총 생산수량: ${project.totalQty || 1}량    집계 종류: ${aggregated.length}종`, infoStyle)];
+  for (let i = 1; i < NCOLS; i++) row2.push(cv('', infoStyle));
+
+  const headerRow = MBOM_COLS.map((c) => cv(c.label, H));
+
+  const dataRows = aggregated.map((item, idx) => {
+    const bg = idx % 2 === 0 ? 'FFFFFF' : 'F5F5F5';
+    const ds = makeStyle({ bg });
+    const dc = makeStyle({ bg, align: 'center' });
+    const dr = makeStyle({ bg, align: 'right' });
+
+    return MBOM_COLS.map((col) => {
+      const val = col.key === 'parents'
+        ? item.parents.join(' / ')
+        : item[col.key];
+      if (col.key === 'no') return cv(String(val ?? ''), dc);
+      if (col.key === 'qtyTotal') return nv(val, dr);
+      return cv(String(val ?? ''), ds);
+    });
+  });
+
+  const wsData = [row1, row2, headerRow, ...dataRows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: NCOLS - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: NCOLS - 1 } },
+  ];
+  ws['!rows'] = [{ hpt: 22 }, { hpt: 16 }, { hpt: 24 }, ...dataRows.map(() => ({ hpt: 15 }))];
+  ws['!cols'] = MBOM_COLS.map((c) => ({ wch: c.w }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'M-BOM');
+  XLSX.writeFile(wb, `MBOM_${project.name}_${today}.xlsx`);
+}

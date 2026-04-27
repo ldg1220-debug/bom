@@ -101,39 +101,6 @@ const EMPTY_PART = (seq = 1) => ({
   specRemark: '',
 });
 
-// 드래그로 상하 영역 크기 조절
-function useVerticalSplit(defaultTopPx = 420) {
-  const [topPx, setTopPx] = useState(defaultTopPx);
-  const containerRef = useRef(null);
-  const dragging = useRef(false);
-
-  const onMouseDown = useCallback((e) => {
-    e.preventDefault();
-    dragging.current = true;
-
-    function onMove(ev) {
-      if (!dragging.current || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const newTop = Math.min(
-        rect.height - 200,
-        Math.max(150, ev.clientY - rect.top)
-      );
-      setTopPx(newTop);
-    }
-
-    function onUp() {
-      dragging.current = false;
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    }
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  }, []);
-
-  return { topPx, containerRef, onMouseDown };
-}
-
 export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel }) {
   const { state, dispatch } = useBOM();
   const { drawings } = state;
@@ -148,7 +115,6 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const isEditMode = !!editDrawing;
 
   const uploadRef = useRef(null);
-  const { topPx, containerRef, onMouseDown: onHandleMouseDown } = useVerticalSplit(400);
 
   useEffect(() => {
     if (editDrawing) {
@@ -299,15 +265,9 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const COL_WIDTHS = ['w-12', 'w-40', 'w-44', 'w-28', 'w-14', 'w-16', 'w-36'];
 
   return (
-    <div
-      ref={containerRef}
-      className="flex flex-col h-full overflow-hidden"
-    >
-      {/* ── 상단 패널 (이미지 + 도면정보) ── */}
-      <div
-        className="flex flex-col gap-3 overflow-y-auto shrink-0 px-0"
-        style={{ height: topPx }}
-      >
+    <div className="flex flex-col gap-3">
+      {/* ── 도면 정보 + 이미지 ── */}
+      <div className="flex flex-col gap-3">
         {/* 재등록 모드 배너 */}
         {isEditMode && (
           <div className="bg-amber-50 border border-amber-300 rounded-lg px-4 py-2 flex items-center justify-between">
@@ -401,21 +361,11 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         )}
       </div>
 
-      {/* ── 드래그 핸들 ── */}
-      <div
-        onMouseDown={onHandleMouseDown}
-        className="shrink-0 flex items-center justify-center bg-gray-100 hover:bg-blue-100 transition-colors cursor-row-resize select-none"
-        style={{ height: 10 }}
-        title="드래그하여 영역 크기 조절"
-      >
-        <div className="w-10 h-1 rounded-full bg-gray-400" />
-      </div>
-
-      {/* ── 하단 패널 (파트리스트 + 버튼) ── */}
-      <div className="flex-1 flex flex-col gap-3 overflow-hidden min-h-0">
+      {/* ── 파트리스트 + 버튼 ── */}
+      <div className="flex flex-col gap-3">
         {/* 파트리스트 편집 테이블 */}
-        <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden flex-1 min-h-0">
-          <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between shrink-0">
+        <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden">
+          <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
             <h3 className="text-sm font-bold text-gray-700">
               {mode === 'revision' ? '새 리비전 파트리스트' : '파트리스트'}{' '}
               <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
@@ -423,7 +373,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
             <span className="text-xs text-gray-400">Tab 키로 다음 셀 이동</span>
           </div>
 
-          <div className="overflow-auto flex-1">
+          <div className="overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>

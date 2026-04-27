@@ -21,6 +21,7 @@ function makeInitialState(projectMeta) {
     bomRows: [],
     circularWarnings: [],
     purchaseUnits: new Set(),
+    mbomOverrides: {},
   };
 }
 
@@ -91,6 +92,7 @@ function reducer(state, action) {
         bomRows: finalRows,
         circularWarnings: warnings,
         purchaseUnits: new Set(action.data.purchaseUnits || []),
+        mbomOverrides: action.data.mbomOverrides || {},
       };
     }
 
@@ -158,20 +160,66 @@ function reducer(state, action) {
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
     }
 
-    // 파트의 부품번호를 다른 도면번호로 수동 연결
+    // 파트의 부품번호를 다른 도면번호로 수동 연결 (_noChild 플래그 초기화)
     case 'LINK_PART_TO_DRAWING': {
       const { drawingId, partSeq, targetDrawingNumber } = action;
       const newDrawings = state.drawings.map((d) => {
         if (d.id !== drawingId) return d;
         return {
           ...d,
+          parts: d.parts.map((p) => {
+            if (p.seq !== partSeq) return p;
+            const { _noChild, ...rest } = p;
+            return { ...rest, partNumber: targetDrawingNumber };
+          }),
+        };
+      });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
+    // 하위 도면 연결 해제 (_noChild = true 설정)
+    case 'UNLINK_PART': {
+      const { drawingId, partSeq } = action;
+      const newDrawings = state.drawings.map((d) => {
+        if (d.id !== drawingId) return d;
+        return {
+          ...d,
           parts: d.parts.map((p) =>
-            p.seq === partSeq ? { ...p, partNumber: targetDrawingNumber } : p
+            p.seq === partSeq ? { ...p, _noChild: true } : p
           ),
         };
       });
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
+    // 선택된 파트 행 삭제 (rowInfos: [{drawingId, partSeq}])
+    case 'DELETE_BOM_PART_ROWS': {
+      const toDelete = new Map();
+      for (const { drawingId, partSeq } of action.rowInfos) {
+        if (!toDelete.has(drawingId)) toDelete.set(drawingId, new Set());
+        toDelete.get(drawingId).add(partSeq);
+      }
+      const newDrawings = state.drawings.map((d) => {
+        const seqs = toDelete.get(d.id);
+        if (!seqs) return d;
+        return { ...d, parts: d.parts.filter((p) => !seqs.has(p.seq)) };
+      });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
+    // M-BOM 셀 직접 편집 오버라이드
+    case 'UPDATE_MBOM_OVERRIDE': {
+      const { childPart, fields } = action;
+      return {
+        ...state,
+        mbomOverrides: {
+          ...(state.mbomOverrides || {}),
+          [childPart]: { ...(state.mbomOverrides?.[childPart] || {}), ...fields },
+        },
+      };
     }
 
     case 'UPDATE_DRAWING_PART': {

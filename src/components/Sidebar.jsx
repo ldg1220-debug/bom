@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import { useBOM } from '../context/BOMContext';
 
-export default function Sidebar({ onSelectDrawing, selectedDrawingId, onReRegister, onClose }) {
+export default function Sidebar({
+  onSelectDrawing,
+  selectedDrawingId,
+  onReRegister,
+  onClose,
+  isCollapsed,
+  onToggleCollapse,
+}) {
   const { state, dispatch } = useBOM();
   const { drawings, bomRows } = state;
   const [expandedId, setExpandedId] = useState(null);
+  const [searchText, setSearchText] = useState('');
 
   function handleDrawingClick(id) {
     const next = expandedId === id ? null : id;
@@ -34,7 +42,7 @@ export default function Sidebar({ onSelectDrawing, selectedDrawingId, onReRegist
   function handleReRegister(e, drawing) {
     e.stopPropagation();
     onReRegister && onReRegister(drawing);
-    onClose && onClose(); // 모바일: 재등록 후 사이드바 닫기
+    onClose && onClose();
   }
 
   function getDrawingLevel(drawingNumber) {
@@ -42,31 +50,88 @@ export default function Sidebar({ onSelectDrawing, selectedDrawingId, onReRegist
     return row ? row.level : null;
   }
 
+  const filteredDrawings = searchText.trim()
+    ? drawings.filter(
+        (d) =>
+          d.drawingNumber.toLowerCase().includes(searchText.toLowerCase()) ||
+          (d.title || '').toLowerCase().includes(searchText.toLowerCase())
+      )
+    : drawings;
+
+  // ── 접힌 상태 ──────────────────────────────────────────────
+  if (isCollapsed) {
+    return (
+      <aside className="w-10 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full shrink-0 items-center py-2 gap-2">
+        <button
+          onClick={onToggleCollapse}
+          className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 text-xs"
+          title="사이드바 펼치기"
+        >
+          ▶
+        </button>
+        <span
+          className="text-xs text-gray-400 dark:text-gray-500 select-none"
+          style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: '10px', marginTop: 4 }}
+        >
+          {drawings.length}개
+        </span>
+      </aside>
+    );
+  }
+
+  // ── 펼친 상태 ──────────────────────────────────────────────
   return (
     <aside className="w-64 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col h-full shrink-0">
-      <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-        <h2 className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-          등록된 도면 ({drawings.length})
-        </h2>
-        {/* 모바일 닫기 버튼 */}
-        <button
-          onClick={onClose}
-          className="md:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none"
-          title="닫기"
-        >
-          ✕
-        </button>
+      <div className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+            등록된 도면 ({drawings.length})
+          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onToggleCollapse}
+              className="text-xs px-1.5 py-0.5 border border-gray-300 dark:border-gray-600 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700"
+              title="사이드바 접기"
+            >
+              ◀
+            </button>
+            <button
+              onClick={onClose}
+              className="md:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none"
+              title="닫기"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        <input
+          className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-400 bg-white dark:bg-gray-700 dark:text-white placeholder-gray-400"
+          placeholder="도면번호 / 제목 검색..."
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
+        {searchText && (
+          <p className="text-xs text-blue-500 mt-1">
+            {filteredDrawings.length} / {drawings.length}개 표시 중
+          </p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {drawings.length === 0 ? (
+        {filteredDrawings.length === 0 ? (
           <div className="p-4 text-center">
-            <p className="text-xs text-gray-400 dark:text-gray-500">등록된 도면이 없습니다.</p>
-            <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">도면 등록 탭에서 추가하세요.</p>
+            {drawings.length === 0 ? (
+              <>
+                <p className="text-xs text-gray-400 dark:text-gray-500">등록된 도면이 없습니다.</p>
+                <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">도면 등록 탭에서 추가하세요.</p>
+              </>
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500">검색 결과 없음</p>
+            )}
           </div>
         ) : (
           <ul>
-            {drawings.map((d) => {
+            {filteredDrawings.map((d) => {
               const level = getDrawingLevel(d.drawingNumber);
               const isExpanded = expandedId === d.id;
 
@@ -86,7 +151,8 @@ export default function Sidebar({ onSelectDrawing, selectedDrawingId, onReRegist
                           <span
                             className="text-xs px-1 rounded font-bold shrink-0"
                             style={{
-                              backgroundColor: level === 1 ? '#e5e7eb' : level === 2 ? '#FFF9C4' : '#C8E6C9',
+                              backgroundColor:
+                                level === 1 ? '#e5e7eb' : level === 2 ? '#FFF9C4' : '#C8E6C9',
                               color: '#374151',
                               fontSize: '10px',
                             }}
@@ -100,7 +166,7 @@ export default function Sidebar({ onSelectDrawing, selectedDrawingId, onReRegist
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">{d.title || '—'}</p>
                       <p className="text-xs text-gray-400 dark:text-gray-500">
-                        REV: {d.rev || '—'} &middot; {d.parts.length}개 파트
+                        REV: {d.rev || '—'} · {d.parts.length}개 파트
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0 ml-1">
@@ -155,7 +221,10 @@ export default function Sidebar({ onSelectDrawing, selectedDrawingId, onReRegist
                                     >
                                       {p.partNumber || '—'}
                                     </td>
-                                    <td className="px-1 py-0.5 text-gray-600 dark:text-gray-300 truncate max-w-[80px]" title={p.description}>
+                                    <td
+                                      className="px-1 py-0.5 text-gray-600 dark:text-gray-300 truncate max-w-[80px]"
+                                      title={p.description}
+                                    >
                                       {p.description || '—'}
                                     </td>
                                     <td className="px-1 py-0.5 text-right text-gray-600 dark:text-gray-300">{p.qty}</td>
