@@ -102,6 +102,11 @@ function reducer(state, action) {
       return { ...state, project: newProject, bomRows: finalRows };
     }
 
+    case 'REPLACE_ALL_DRAWINGS': {
+      const { finalRows, warnings } = rebuild(action.drawings, state.project.totalQty);
+      return { ...state, drawings: action.drawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
     case 'ADD_DRAWING': {
       const drawing = action.drawing;
       const existingIndex = state.drawings.findIndex(
