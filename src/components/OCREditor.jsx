@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useBOM } from '../context/BOMContext';
 import DrawingUpload from './DrawingUpload';
@@ -215,6 +215,29 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         specRemark: (p.specRemark || '').trim(),
       }));
 
+    // 중복 자품번 검사
+    const pnCount = {};
+    for (const p of validParts) {
+      if (p.partNumber) pnCount[p.partNumber] = (pnCount[p.partNumber] || 0) + 1;
+    }
+    const dupParts = Object.keys(pnCount).filter((k) => pnCount[k] > 1);
+    if (dupParts.length > 0) {
+      const choice = window.confirm(
+        `⚠️ 중복된 자품번이 ${dupParts.length}개 있습니다:\n${dupParts.slice(0, 5).join('\n')}${dupParts.length > 5 ? `\n...외 ${dupParts.length - 5}개` : ''}\n\n[확인] 중복 제거 (seq 기준 첫 번째만 유지)\n[취소] 중복 포함 그대로 저장`
+      );
+      if (choice) {
+        const seen = new Set();
+        const deduped = validParts.filter((p) => {
+          if (!p.partNumber) return true;
+          if (seen.has(p.partNumber)) return false;
+          seen.add(p.partNumber);
+          return true;
+        });
+        validParts.length = 0;
+        validParts.push(...deduped);
+      }
+    }
+
     if (mode === 'append') {
       if (!targetDrawingId) { alert('추가할 도면을 선택하세요.'); return; }
       if (validParts.length === 0) { alert('추가할 파트가 없습니다.'); return; }
@@ -272,6 +295,15 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   }
 
   const [showRaw, setShowRaw] = useState(false);
+
+  // 중복 자품번 계산 (시각적 표시용)
+  const dupPartNums = useMemo(() => {
+    const count = {};
+    for (const p of parts) {
+      if (p.partNumber) count[p.partNumber] = (count[p.partNumber] || 0) + 1;
+    }
+    return new Set(Object.keys(count).filter((k) => count[k] > 1));
+  }, [parts]);
 
   const COLS = ['seq', 'partNumber', 'description', 'material', 'qty', 'unit', 'specRemark'];
   const COL_LABELS = ['No', 'PART NO.', '품명', '재질', '수량', '단위', 'SPEC & REMARK'];
@@ -379,10 +411,17 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         {/* 파트리스트 편집 테이블 */}
         <div className="bg-white border border-gray-200 rounded-lg flex flex-col overflow-hidden">
           <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-gray-700">
-              {mode === 'revision' ? '새 리비전 파트리스트' : '파트리스트'}{' '}
-              <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-gray-700">
+                {mode === 'revision' ? '새 리비전 파트리스트' : '파트리스트'}{' '}
+                <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
+              </h3>
+              {dupPartNums.size > 0 && (
+                <span className="text-xs bg-yellow-100 text-yellow-700 border border-yellow-300 px-2 py-0.5 rounded-full font-medium">
+                  ⚠ 중복 자품번 {dupPartNums.size}개
+                </span>
+              )}
+            </div>
             <span className="text-xs text-gray-400">Tab 키로 다음 셀 이동</span>
           </div>
 
@@ -402,8 +441,10 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
                 </tr>
               </thead>
               <tbody>
-                {parts.map((part, rowIdx) => (
-                  <tr key={part.id} className="border-b border-gray-100 hover:bg-blue-50">
+                {parts.map((part, rowIdx) => {
+                  const isDup = !!(part.partNumber && dupPartNums.has(part.partNumber));
+                  return (
+                  <tr key={part.id} className={`border-b border-gray-100 hover:bg-blue-50 ${isDup ? 'bg-yellow-50' : ''}`}>
                     {COLS.map((col, colIdx) => (
                       <td key={col} className="px-1 py-0.5">
                         <input
@@ -411,7 +452,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
                           data-col={colIdx}
                           className={`w-full border border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none rounded px-1 py-0.5 bg-transparent focus:bg-white text-xs ${
                             col === 'seq' ? 'text-center' : ''
-                          }`}
+                          } ${isDup && col === 'partNumber' ? 'text-yellow-700 font-semibold' : ''}`}
                           value={part[col] ?? ''}
                           onChange={(e) => updatePart(part.id, col, e.target.value)}
                           onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx, COLS.length)}
@@ -430,7 +471,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
