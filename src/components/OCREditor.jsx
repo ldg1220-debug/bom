@@ -118,6 +118,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
 
   useEffect(() => {
     if (editDrawing) {
+      setMode('new');
+      setTargetDrawingId('');
       setDrawingNumber(editDrawing.drawingNumber || '');
       setTitle(editDrawing.title || '');
       setRev(editDrawing.rev || '');
