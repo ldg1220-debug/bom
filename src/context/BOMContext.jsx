@@ -137,6 +137,12 @@ function reducer(state, action) {
       return { ...state, purchaseUnits: next };
     }
 
+    case 'SET_PURCHASE_UNITS_RANGE': {
+      const next = new Set(state.purchaseUnits);
+      for (const key of action.keys) { action.value ? next.add(key) : next.delete(key); }
+      return { ...state, purchaseUnits: next };
+    }
+
     case 'UPDATE_BOM_ROW': {
       const updated = state.bomRows.map((row) =>
         row.id === action.rowId ? { ...row, ...action.fields } : row

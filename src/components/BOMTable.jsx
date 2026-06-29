@@ -232,6 +232,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
   const clipboardRef = useRef(null);
 
   const [checkedRowIds, setCheckedRowIds] = useState(new Set());
+  const lastCheckClickRef = useRef({ drag: null, purchase: null });
 
   function toggleCol(key) {
     if (EBOM_FIXED_KEYS.has(key)) return;
@@ -356,6 +357,46 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
       next.has(rowId) ? next.delete(rowId) : next.add(rowId);
       return next;
     });
+  }
+
+  function handleDragCheckClick(e, row, rowIndex) {
+    if (e.shiftKey && lastCheckClickRef.current.drag != null) {
+      const [from, to] = lastCheckClickRef.current.drag <= rowIndex
+        ? [lastCheckClickRef.current.drag, rowIndex]
+        : [rowIndex, lastCheckClickRef.current.drag];
+      const value = !checkedRowIds.has(row.id);
+      setCheckedRowIds((prev) => {
+        const next = new Set(prev);
+        for (let i = from; i <= to; i++) {
+          const r = displayRows[i];
+          if (!r || r.isAssyRow) continue;
+          value ? next.add(r.id) : next.delete(r.id);
+        }
+        return next;
+      });
+    } else {
+      toggleChecked(row.id);
+    }
+    lastCheckClickRef.current.drag = rowIndex;
+  }
+
+  function handlePurchaseCheckClick(e, row, rowIndex, pKey) {
+    if (e.shiftKey && lastCheckClickRef.current.purchase != null) {
+      const [from, to] = lastCheckClickRef.current.purchase <= rowIndex
+        ? [lastCheckClickRef.current.purchase, rowIndex]
+        : [rowIndex, lastCheckClickRef.current.purchase];
+      const value = !(state.purchaseUnits?.has(pKey) || false);
+      const keys = [];
+      for (let i = from; i <= to; i++) {
+        const r = displayRows[i];
+        if (!r || (r.isAssyRow && r.level <= 1)) continue;
+        keys.push(r.isAssyRow ? `${r.drawingId}:assy` : `${r.drawingId}:${r.no}`);
+      }
+      dispatch({ type: 'SET_PURCHASE_UNITS_RANGE', keys, value });
+    } else {
+      dispatch({ type: 'TOGGLE_PURCHASE_UNIT', key: pKey });
+    }
+    lastCheckClickRef.current.purchase = rowIndex;
   }
 
   function deleteChecked() {
@@ -637,9 +678,10 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                               <input
                                 type="checkbox"
                                 checked={checkedRowIds.has(row.id)}
-                                onChange={() => toggleChecked(row.id)}
-                                onClick={(e) => e.stopPropagation()}
+                                onChange={() => {}}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDragCheckClick(e, row, rowIndex); }}
                                 className="w-3 h-3 accent-blue-600 cursor-pointer"
+                                title="클릭: 선택, Shift+클릭: 범위 선택"
                               />
                               <span className="text-gray-300 dark:text-gray-600 cursor-grab text-xs select-none" title="드래그하여 순서 변경">⠿</span>
                             </div>
@@ -736,9 +778,10 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                           className="border-r border-gray-200 dark:border-gray-700 text-center px-1">
                           <input
                             type="checkbox" checked={checked}
-                            onChange={() => dispatch({ type: 'TOGGLE_PURCHASE_UNIT', key: pKey })}
+                            onChange={() => {}}
+                            onClick={(e) => { e.preventDefault(); handlePurchaseCheckClick(e, row, rowIndex, pKey); }}
                             className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
-                            title={row.isAssyRow ? '조립품 구매단위 체크 → M-BOM에 집계' : '구매단위 체크 → M-BOM에 집계'}
+                            title={(row.isAssyRow ? '조립품 구매단위 체크 → M-BOM에 집계' : '구매단위 체크 → M-BOM에 집계') + ' / Shift+클릭: 범위 선택'}
                           />
                         </td>
                       );
