@@ -11,6 +11,7 @@ import BOMTable from './components/BOMTable';
 import MBOMTable from './components/MBOMTable';
 import ProjectScreen from './components/ProjectScreen';
 import ExportDialog from './components/ExportDialog';
+import RevisionHistoryModal from './components/RevisionHistoryModal';
 
 // ── 엑셀 불러오기 ────────────────────────────────────────────────
 function importFromExcel(file, dispatch, onDone) {
@@ -115,6 +116,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
     try { return localStorage.getItem('bom:sidebar:collapsed') === 'true'; } catch { return false; }
   });
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const importInputRef = useRef(null);
 
   function handleDrawingAdded() {
@@ -194,6 +196,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
         onOpenExport={() => { if (state.bomRows.length > 0) setShowExportDialog(true); }}
         onOpenImport={() => importInputRef.current?.click()}
+        onOpenHistory={() => setShowHistory(true)}
       />
       <div className="flex flex-1 overflow-hidden relative">
         {/* 모바일 오버레이 */}
@@ -259,6 +262,10 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
 
       {showExportDialog && (
         <ExportDialog onExport={handleExport} onClose={() => setShowExportDialog(false)} />
+      )}
+
+      {showHistory && (
+        <RevisionHistoryModal onClose={() => setShowHistory(false)} />
       )}
     </div>
   );

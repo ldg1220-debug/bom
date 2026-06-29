@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useBOM } from '../context/BOMContext';
 import ProjectSettingsModal from './ProjectSettingsModal';
 
-export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar, onOpenExport, onOpenImport }) {
+export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar, onOpenExport, onOpenImport, onOpenHistory }) {
   const { state } = useBOM();
   const [showSettings, setShowSettings] = useState(false);
 
@@ -60,8 +60,17 @@ export default function Header({ activeTab, setActiveTab, onChangeProject, isDar
           ))}
         </div>
 
-        {/* 오른쪽: Excel / 다크모드 / 프로젝트 변경 */}
+        {/* 오른쪽: 수정이력 / Excel / 다크모드 / 프로젝트 변경 */}
         <div className="flex items-center gap-1.5">
+          {/* 수정이력 */}
+          <button
+            onClick={onOpenHistory}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium hidden sm:block"
+            title="리비전/파트 수정이력 보기"
+          >
+            📋 수정이력
+          </button>
+
           {/* Excel 내보내기 */}
           <button
             onClick={onOpenExport}

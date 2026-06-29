@@ -112,6 +112,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [rawText, setRawText] = useState('');
   const [mode, setMode] = useState('new');
   const [targetDrawingId, setTargetDrawingId] = useState('');
+  const [newRevValue, setNewRevValue] = useState('');
   const isEditMode = !!editDrawing;
 
   const uploadRef = useRef(null);
@@ -200,6 +201,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     setRawText('');
     setMode('new');
     setTargetDrawingId('');
+    setNewRevValue('');
   }
 
   function addToBOM() {
@@ -254,12 +256,14 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       const target = drawings.find((d) => d.id === targetDrawingId);
       const ok = confirm(
         `"${target?.drawingNumber}" 도면에 리비전을 적용합니다.\n` +
+        (newRevValue.trim() ? `• REV: ${target?.rev || '—'} → ${newRevValue.trim()}\n` : '') +
         `• 삭제된 파트: 취소선 표시 + 비고 "삭제"\n` +
         `• 수량 변경: 빨간 숫자 + 비고 "수량변경 X→Y"\n` +
+        `이 변경 내용은 수정이력에 기록됩니다.\n` +
         `계속하시겠습니까?`
       );
       if (!ok) return;
-      dispatch({ type: 'APPLY_REVISION', drawingId: targetDrawingId, newParts: validParts });
+      dispatch({ type: 'APPLY_REVISION', drawingId: targetDrawingId, newParts: validParts, newRev: newRevValue.trim() });
       onDrawingAdded && onDrawingAdded();
       resetForm();
       uploadRef.current?.clear();
@@ -401,7 +405,22 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
             <p className="text-xs text-purple-500 mb-3">
               새 리비전 파트리스트를 인식한 뒤 선택한 도면과 비교합니다.
             </p>
-            <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="purple" />
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="purple" />
+              </div>
+              <div>
+                <label className="text-xs text-purple-500 block mb-1">
+                  새 REV {targetDrawingId && `(현재: ${drawings.find((d) => d.id === targetDrawingId)?.rev || '—'})`}
+                </label>
+                <input
+                  className="w-24 border border-purple-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500"
+                  value={newRevValue}
+                  onChange={(e) => setNewRevValue(e.target.value)}
+                  placeholder="예: B"
+                />
+              </div>
+            </div>
           </div>
         )}
       </div>

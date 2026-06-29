@@ -22,6 +22,7 @@ function makeInitialState(projectMeta) {
     circularWarnings: [],
     purchaseUnits: new Set(),
     mbomOverrides: {},
+    history: [],
   };
 }
 
@@ -93,6 +94,7 @@ function reducer(state, action) {
         circularWarnings: warnings,
         purchaseUnits: new Set(action.data.purchaseUnits || []),
         mbomOverrides: action.data.mbomOverrides || {},
+        history: action.data.history || [],
       };
     }
 
@@ -263,25 +265,75 @@ function reducer(state, action) {
     }
 
     case 'APPLY_REVISION': {
-      const { drawingId, newParts } = action;
+      const { drawingId, newParts, newRev } = action;
+      let historyEntry = null;
       const newDrawings = state.drawings.map((d) => {
         if (d.id !== drawingId) return d;
-        return { ...d, parts: applyRevisionDiff(d.parts, newParts), updatedAt: new Date().toISOString() };
+        const merged = applyRevisionDiff(d.parts, newParts);
+        const oldSeqSet = new Set(d.parts.map((p) => p.seq));
+        const wasDeletedSeqSet = new Set(d.parts.filter((p) => p._deletedInRev).map((p) => p.seq));
+        const added = [], removed = [], changed = [];
+        for (const p of merged) {
+          if (!oldSeqSet.has(p.seq)) {
+            added.push({ seq: p.seq, partNumber: p.partNumber, description: p.description });
+          } else if (p._deletedInRev && !wasDeletedSeqSet.has(p.seq)) {
+            removed.push({ seq: p.seq, partNumber: p.partNumber, description: p.description });
+          } else if (p._qtyChangedFrom != null) {
+            changed.push({ seq: p.seq, partNumber: p.partNumber, description: p.description, qtyFrom: p._qtyChangedFrom, qtyTo: p.qty });
+          }
+        }
+        const now = new Date().toISOString();
+        const resolvedRev = newRev ? newRev : d.rev;
+        historyEntry = {
+          id: uuidv4(),
+          date: now,
+          drawingId: d.id,
+          drawingNumber: d.drawingNumber,
+          type: 'revision',
+          oldRev: d.rev,
+          newRev: resolvedRev,
+          added, removed, changed,
+          partCountBefore: d.parts.filter((p) => !p._deletedInRev).length,
+          partCountAfter: merged.filter((p) => !p._deletedInRev).length,
+        };
+        return { ...d, parts: merged, rev: resolvedRev, updatedAt: now };
       });
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
-      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+      return {
+        ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings,
+        history: historyEntry ? [...state.history, historyEntry] : state.history,
+      };
     }
 
     case 'APPEND_PARTS_TO_DRAWING': {
       const { drawingId, newParts } = action;
+      let historyEntry = null;
       const newDrawings = state.drawings.map((d) => {
         if (d.id !== drawingId) return d;
         const maxSeq = d.parts.reduce((m, p) => Math.max(m, p.seq), 0);
         const appended = newParts.map((p, i) => ({ ...p, seq: maxSeq + i + 1 }));
-        return { ...d, parts: [...d.parts, ...appended], updatedAt: new Date().toISOString() };
+        const now = new Date().toISOString();
+        historyEntry = {
+          id: uuidv4(),
+          date: now,
+          drawingId: d.id,
+          drawingNumber: d.drawingNumber,
+          type: 'append',
+          oldRev: d.rev,
+          newRev: d.rev,
+          added: appended.map((p) => ({ seq: p.seq, partNumber: p.partNumber, description: p.description })),
+          removed: [],
+          changed: [],
+          partCountBefore: d.parts.filter((p) => !p._deletedInRev).length,
+          partCountAfter: d.parts.filter((p) => !p._deletedInRev).length + appended.length,
+        };
+        return { ...d, parts: [...d.parts, ...appended], updatedAt: now };
       });
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
-      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+      return {
+        ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings,
+        history: historyEntry ? [...state.history, historyEntry] : state.history,
+      };
     }
 
     case 'CLEAR_CIRCULAR_WARNINGS':
