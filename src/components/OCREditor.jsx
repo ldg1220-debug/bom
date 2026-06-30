@@ -111,16 +111,13 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [parts, setParts] = useState([EMPTY_PART()]);
   const [rawText, setRawText] = useState('');
   const [checkedPartIds, setCheckedPartIds] = useState(new Set());
-  const [mode, setMode] = useState('new');
   const [targetDrawingId, setTargetDrawingId] = useState('');
-  const [newRevValue, setNewRevValue] = useState('');
   const isEditMode = !!editDrawing;
 
   const uploadRef = useRef(null);
 
   useEffect(() => {
     if (editDrawing) {
-      setMode('new');
       setTargetDrawingId('');
       setDrawingNumber(editDrawing.drawingNumber || '');
       setTitle(editDrawing.title || '');
@@ -231,9 +228,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     setParts([EMPTY_PART()]);
     setRawText('');
     setCheckedPartIds(new Set());
-    setMode('new');
     setTargetDrawingId('');
-    setNewRevValue('');
   }
 
   function addToBOM() {
@@ -272,8 +267,11 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       }
     }
 
-    if (mode === 'append') {
-      if (!targetDrawingId) { alert('추가할 도면을 선택하세요.'); return; }
+    const trimmed = drawingNumber.trim();
+
+    // 도면번호 미인식(분할 스크린샷 등) → 수동 선택한 도면에 이어 붙이기
+    if (!trimmed && !isEditMode) {
+      if (!targetDrawingId) { alert('도면번호를 입력하거나, 이어 붙일 도면을 선택하세요.'); return; }
       if (validParts.length === 0) { alert('추가할 파트가 없습니다.'); return; }
       dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: targetDrawingId, newParts: validParts });
       onDrawingAdded && onDrawingAdded();
@@ -282,35 +280,62 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       return;
     }
 
-    if (mode === 'revision') {
-      if (!targetDrawingId) { alert('리비전을 적용할 도면을 선택하세요.'); return; }
-      if (validParts.length === 0) { alert('새 리비전 파트가 없습니다.'); return; }
-      const target = drawings.find((d) => d.id === targetDrawingId);
-      const ok = confirm(
-        `"${target?.drawingNumber}" 도면에 리비전을 적용합니다.\n` +
-        (newRevValue.trim() ? `• REV: ${target?.rev || '—'} → ${newRevValue.trim()}\n` : '') +
-        `• 삭제된 파트: 취소선 표시 + 비고 "삭제"\n` +
-        `• 수량 변경: 빨간 숫자 + 비고 "수량변경 X→Y"\n` +
-        `이 변경 내용은 수정이력에 기록됩니다.\n` +
-        `계속하시겠습니까?`
+    if (!trimmed) { alert('도면번호를 입력하세요.'); return; }
+
+    const existing = drawings.find((d) => d.drawingNumber === trimmed);
+
+    if (existing && !isEditMode) {
+      const existingRev = (existing.rev || '').trim();
+      const newRevInput = rev.trim();
+      const revChanged = newRevInput && existingRev && newRevInput !== existingRev;
+
+      if (revChanged) {
+        const ok = confirm(
+          `"${trimmed}" 도면의 리비전을 교체합니다.\n` +
+          `• REV: ${existingRev} → ${newRevInput}\n` +
+          `• 삭제된 파트: 취소선 표시 + 비고 "삭제"\n` +
+          `• 수량 변경: 빨간 숫자 + 비고 "수량변경 X→Y"\n` +
+          `이 변경 내용은 수정이력에 기록됩니다.\n` +
+          `계속하시겠습니까?`
+        );
+        if (!ok) return;
+        if (validParts.length === 0) { alert('새 리비전 파트가 없습니다.'); return; }
+        dispatch({ type: 'APPLY_REVISION', drawingId: existing.id, newParts: validParts, newRev: newRevInput });
+        onDrawingAdded && onDrawingAdded();
+        resetForm();
+        uploadRef.current?.clear();
+        return;
+      }
+
+      // REV가 같거나 비어있음 → 이어 붙이기인지 전체 교체인지 확인
+      const wantsAppend = confirm(
+        `"${trimmed}" 도면이 이미 등록되어 있습니다 (REV ${existingRev || '—'}).\n\n` +
+        `[확인] 이어 붙이기 — 입력한 파트를 기존 파트에 추가합니다.\n` +
+        `[취소] 다른 작업 선택 (전체 교체 / 취소)`
       );
-      if (!ok) return;
-      dispatch({ type: 'APPLY_REVISION', drawingId: targetDrawingId, newParts: validParts, newRev: newRevValue.trim() });
+      if (wantsAppend) {
+        if (validParts.length === 0) { alert('추가할 파트가 없습니다.'); return; }
+        dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: existing.id, newParts: validParts });
+        onDrawingAdded && onDrawingAdded();
+        resetForm();
+        uploadRef.current?.clear();
+        return;
+      }
+      const wantsOverwrite = confirm(
+        `대신 전체 내용을 교체할까요?\n\n` +
+        `입력한 파트 리스트가 도면의 전체 내용으로 적용되며, 기존에 있었지만 이번 목록에 없는 파트는 삭제 처리(취소선)되고 변경된 항목은 수정이력에 기록됩니다.\n\n` +
+        `[확인] 전체 교체  [취소] 작업 취소`
+      );
+      if (!wantsOverwrite) return;
+      if (validParts.length === 0) { alert('파트가 없습니다.'); return; }
+      dispatch({ type: 'APPLY_REVISION', drawingId: existing.id, newParts: validParts, newRev: newRevInput });
       onDrawingAdded && onDrawingAdded();
       resetForm();
       uploadRef.current?.clear();
       return;
     }
 
-    // 'new' 모드
-    const trimmed = drawingNumber.trim();
-    if (!trimmed) { alert('도면번호를 입력하세요.'); return; }
-    const existing = drawings.find((d) => d.drawingNumber === trimmed);
-    if (existing && !isEditMode) {
-      const ok = confirm(`"${trimmed}" 도면이 이미 등록되어 있습니다.\n기존 데이터를 덮어쓰시겠습니까?`);
-      if (!ok) return;
-    }
-
+    // 신규 도면 (또는 수정 모드)
     dispatch({
       type: 'ADD_DRAWING',
       drawing: {
@@ -331,6 +356,12 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   }
 
   const [showRaw, setShowRaw] = useState(false);
+
+  const trimmedDrawingNumber = drawingNumber.trim();
+  const matchedDrawing = useMemo(
+    () => drawings.find((d) => d.drawingNumber === trimmedDrawingNumber) || null,
+    [drawings, trimmedDrawingNumber]
+  );
 
   // 중복 자품번 계산 (시각적 표시용)
   const dupPartNums = useMemo(() => {
@@ -373,89 +404,53 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         {/* 이미지 업로드 */}
         <DrawingUpload ref={uploadRef} onOCRComplete={handleOCRComplete} />
 
-        {/* 모드 토글 */}
-        {!isEditMode && drawings.length > 0 && (
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {[
-              { id: 'new', label: '새 도면 등록', active: 'text-blue-700' },
-              { id: 'append', label: '파트 이어 붙이기', active: 'text-orange-600' },
-              { id: 'revision', label: '리비전 교체', active: 'text-purple-600' },
-            ].map(({ id, label, active }) => (
-              <button
-                key={id}
-                onClick={() => { setMode(id); setTargetDrawingId(''); }}
-                className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
-                  mode === id ? `bg-white ${active} shadow-sm` : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* 도면 정보 / 타겟 선택 */}
-        {mode === 'new' || isEditMode ? (
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <h3 className="text-sm font-bold text-gray-700 mb-3">도면 정보</h3>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">도면번호 *</label>
-                <input
-                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
-                  value={drawingNumber}
-                  onChange={(e) => setDrawingNumber(e.target.value)}
-                  placeholder="예: RM-LC01-FC23344"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">도면 제목</label>
-                <input
-                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="예: FRONT PANEL, WELDED"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 block mb-1">REV</label>
-                <input
-                  className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
-                  value={rev}
-                  onChange={(e) => setRev(e.target.value)}
-                  placeholder="A"
-                />
-              </div>
+        {/* 도면 정보 */}
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-3">도면 정보</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">도면번호 *</label>
+              <input
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
+                value={drawingNumber}
+                onChange={(e) => setDrawingNumber(e.target.value)}
+                placeholder="예: RM-LC01-FC23344"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">도면 제목</label>
+              <input
+                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="예: FRONT PANEL, WELDED"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">REV</label>
+              <input
+                className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                value={rev}
+                onChange={(e) => setRev(e.target.value)}
+                placeholder="A"
+              />
             </div>
           </div>
-        ) : mode === 'append' ? (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-            <h3 className="text-sm font-bold text-orange-700 mb-1">어느 도면에 이어 붙일까요?</h3>
-            <p className="text-xs text-orange-500 mb-3">도면번호가 없는 분할 스크린샷을 올렸을 때 사용하세요.</p>
-            <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="orange" />
-          </div>
-        ) : (
-          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-            <h3 className="text-sm font-bold text-purple-700 mb-1">리비전 교체 — 대상 도면 선택</h3>
-            <p className="text-xs text-purple-500 mb-3">
-              새 리비전 파트리스트를 인식한 뒤 선택한 도면과 비교합니다.
+          {!isEditMode && matchedDrawing && (
+            <p className="text-xs text-amber-600 mt-2">
+              ⓘ 이미 등록된 도면입니다 (REV {matchedDrawing.rev || '—'} · 파트 {matchedDrawing.parts.length}개). [BOM에 추가]를 누르면 REV가 다를 때는 리비전 교체로, 같으면 이어 붙이기/전체 교체 중 선택하게 됩니다.
             </p>
-            <div className="flex gap-3 items-end">
-              <div className="flex-1">
-                <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="purple" />
-              </div>
-              <div>
-                <label className="text-xs text-purple-500 block mb-1">
-                  새 REV {targetDrawingId && `(현재: ${drawings.find((d) => d.id === targetDrawingId)?.rev || '—'})`}
-                </label>
-                <input
-                  className="w-24 border border-purple-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:border-purple-500"
-                  value={newRevValue}
-                  onChange={(e) => setNewRevValue(e.target.value)}
-                  placeholder="예: B"
-                />
-              </div>
-            </div>
+          )}
+        </div>
+
+        {/* 도면번호 미인식 시 폴백: 수동으로 이어 붙일 도면 선택 */}
+        {!isEditMode && !trimmedDrawingNumber && drawings.length > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <h3 className="text-sm font-bold text-orange-700 mb-1">도면번호가 비어있습니다</h3>
+            <p className="text-xs text-orange-500 mb-3">
+              도면번호가 없는 분할 스크린샷이라면, 이어 붙일 도면을 직접 선택하세요. (선택 시 입력한 파트가 해당 도면에 추가됩니다)
+            </p>
+            <DrawingCombobox drawings={drawings} value={targetDrawingId} onChange={setTargetDrawingId} accentColor="orange" />
           </div>
         )}
       </div>
@@ -467,7 +462,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
           <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-gray-700">
-                {mode === 'revision' ? '새 리비전 파트리스트' : '파트리스트'}{' '}
+                파트리스트{' '}
                 <span className="text-gray-400 font-normal">({parts.filter(p => p.partNumber || p.description).length}개)</span>
               </h3>
               {dupPartNums.size > 0 && (
@@ -604,16 +599,9 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
           )}
           <button
             onClick={addToBOM}
-            className={`flex-1 font-bold py-3 rounded-lg text-sm shadow transition-colors text-white ${
-              mode === 'append' ? 'bg-orange-600 hover:bg-orange-700' :
-              mode === 'revision' ? 'bg-purple-600 hover:bg-purple-700' :
-              'bg-blue-700 hover:bg-blue-800'
-            }`}
+            className="flex-1 font-bold py-3 rounded-lg text-sm shadow transition-colors text-white bg-blue-700 hover:bg-blue-800"
           >
-            {isEditMode ? 'BOM에 저장 (수정)' :
-             mode === 'append' ? '선택 도면에 파트 추가' :
-             mode === 'revision' ? '리비전 적용' :
-             'BOM에 추가'}
+            {isEditMode ? 'BOM에 저장 (수정)' : 'BOM에 추가'}
           </button>
         </div>
       </div>
