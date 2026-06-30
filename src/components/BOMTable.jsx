@@ -351,20 +351,18 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
     }
   }
 
-  function toggleChecked(rowId) {
-    setCheckedRowIds((prev) => {
-      const next = new Set(prev);
-      next.has(rowId) ? next.delete(rowId) : next.add(rowId);
-      return next;
-    });
-  }
-
+  // Use onChange (not onClick+preventDefault) so the browser's native checkbox toggle
+  // is never reverted out from under React's controlled `checked` prop — preventDefault-ing
+  // a checkbox click causes React's input value tracker to miss the resulting DOM update
+  // (it sees the transient native toggle and assumes the prop is already applied), leaving
+  // the checkbox visually stale until an unrelated re-render forces reconciliation.
   function handleDragCheckClick(e, row, rowIndex) {
-    if (e.shiftKey && lastCheckClickRef.current.drag != null) {
+    const value = e.target.checked;
+    const shiftKey = e.nativeEvent.shiftKey;
+    if (shiftKey && lastCheckClickRef.current.drag != null) {
       const [from, to] = lastCheckClickRef.current.drag <= rowIndex
         ? [lastCheckClickRef.current.drag, rowIndex]
         : [rowIndex, lastCheckClickRef.current.drag];
-      const value = !checkedRowIds.has(row.id);
       setCheckedRowIds((prev) => {
         const next = new Set(prev);
         for (let i = from; i <= to; i++) {
@@ -375,17 +373,22 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
         return next;
       });
     } else {
-      toggleChecked(row.id);
+      setCheckedRowIds((prev) => {
+        const next = new Set(prev);
+        value ? next.add(row.id) : next.delete(row.id);
+        return next;
+      });
     }
     lastCheckClickRef.current.drag = rowIndex;
   }
 
   function handlePurchaseCheckClick(e, row, rowIndex, pKey) {
-    if (e.shiftKey && lastCheckClickRef.current.purchase != null) {
+    const value = e.target.checked;
+    const shiftKey = e.nativeEvent.shiftKey;
+    if (shiftKey && lastCheckClickRef.current.purchase != null) {
       const [from, to] = lastCheckClickRef.current.purchase <= rowIndex
         ? [lastCheckClickRef.current.purchase, rowIndex]
         : [rowIndex, lastCheckClickRef.current.purchase];
-      const value = !(state.purchaseUnits?.has(pKey) || false);
       const keys = [];
       for (let i = from; i <= to; i++) {
         const r = displayRows[i];
@@ -394,7 +397,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
       }
       dispatch({ type: 'SET_PURCHASE_UNITS_RANGE', keys, value });
     } else {
-      dispatch({ type: 'TOGGLE_PURCHASE_UNIT', key: pKey });
+      dispatch({ type: 'SET_PURCHASE_UNITS_RANGE', keys: [pKey], value });
     }
     lastCheckClickRef.current.purchase = rowIndex;
   }
@@ -678,8 +681,8 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                               <input
                                 type="checkbox"
                                 checked={checkedRowIds.has(row.id)}
-                                onChange={() => {}}
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDragCheckClick(e, row, rowIndex); }}
+                                onChange={(e) => handleDragCheckClick(e, row, rowIndex)}
+                                onClick={(e) => e.stopPropagation()}
                                 className="w-3 h-3 accent-blue-600 cursor-pointer"
                                 title="클릭: 선택, Shift+클릭: 범위 선택"
                               />
@@ -778,8 +781,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                           className="border-r border-gray-200 dark:border-gray-700 text-center px-1">
                           <input
                             type="checkbox" checked={checked}
-                            onChange={() => {}}
-                            onClick={(e) => { e.preventDefault(); handlePurchaseCheckClick(e, row, rowIndex, pKey); }}
+                            onChange={(e) => handlePurchaseCheckClick(e, row, rowIndex, pKey)}
                             className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
                             title={(row.isAssyRow ? '조립품 구매단위 체크 → M-BOM에 집계' : '구매단위 체크 → M-BOM에 집계') + ' / Shift+클릭: 범위 선택'}
                           />

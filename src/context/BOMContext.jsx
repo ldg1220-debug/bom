@@ -133,12 +133,6 @@ function reducer(state, action) {
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings, purchaseUnits: newPU };
     }
 
-    case 'TOGGLE_PURCHASE_UNIT': {
-      const next = new Set(state.purchaseUnits);
-      next.has(action.key) ? next.delete(action.key) : next.add(action.key);
-      return { ...state, purchaseUnits: next };
-    }
-
     case 'SET_PURCHASE_UNITS_RANGE': {
       const next = new Set(state.purchaseUnits);
       for (const key of action.keys) { action.value ? next.add(key) : next.delete(key); }
