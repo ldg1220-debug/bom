@@ -29,6 +29,18 @@ function importFromExcel(file, dispatch, onDone) {
       // 첫 4행은 헤더; 5행부터 데이터
       const dataRows = rows.slice(4).filter((r) => r[15] != null && String(r[15]).trim() !== '');
 
+      // 사전 스캔: 품번 → {품명, REV} 인덱스
+      // (자품번으로 등장하는 모든 행에서 품명·REV 수집)
+      const titleByPart = new Map();
+      const revByPart = new Map();
+      for (const row of dataRows) {
+        const partNum = String(row[15] || '').trim();
+        const desc = String(row[16] || '').trim();
+        const r = String(row[13] || '').trim();
+        if (partNum && desc && !titleByPart.has(partNum)) titleByPart.set(partNum, desc);
+        if (partNum && r && !revByPart.has(partNum)) revByPart.set(partNum, r);
+      }
+
       // drawingNumber → { drawingNumber, title, rev, parts[] }
       const drawingsMap = new Map();
 
@@ -45,25 +57,31 @@ function importFromExcel(file, dispatch, onDone) {
         const remark = String(row[28] || '').trim();
         const staNo = String(row[9] || '').trim();
         const processType = String(row[10] || '').trim();
-        const vendor = String(row[15 + 14] || '').trim(); // not in export, skip
 
         const isAssyRow = !no || String(no).trim() === '';
 
         if (isAssyRow) {
-          if (childPart && !drawingsMap.has(childPart)) {
-            drawingsMap.set(childPart, {
-              drawingNumber: childPart,
-              title: description,
-              rev,
-              parts: [],
-            });
+          if (childPart) {
+            if (!drawingsMap.has(childPart)) {
+              drawingsMap.set(childPart, {
+                drawingNumber: childPart,
+                title: description || titleByPart.get(childPart) || '',
+                rev: rev || revByPart.get(childPart) || '',
+                parts: [],
+              });
+            } else {
+              // 자식 파트 행이 먼저 등장해 title이 빈 채로 생성된 경우 채워줌
+              const existing = drawingsMap.get(childPart);
+              if (!existing.title) existing.title = description || titleByPart.get(childPart) || '';
+              if (!existing.rev) existing.rev = rev || revByPart.get(childPart) || '';
+            }
           }
         } else {
           if (parentPart && !drawingsMap.has(parentPart)) {
             drawingsMap.set(parentPart, {
               drawingNumber: parentPart,
-              title: '',
-              rev: '',
+              title: titleByPart.get(parentPart) || '',
+              rev: revByPart.get(parentPart) || '',
               parts: [],
             });
           }
