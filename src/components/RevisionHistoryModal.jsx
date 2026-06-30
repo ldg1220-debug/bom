@@ -82,26 +82,36 @@ export default function RevisionHistoryModal({ onClose }) {
           </div>
         ) : (
           <>
-            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3 shrink-0">
-              <label className="text-xs text-gray-500 dark:text-gray-400">수정 날짜</label>
-              <select
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:border-indigo-500"
-              >
-                {dateKeys.map((k) => (
-                  <option key={k} value={k}>
-                    {k} ({history.filter((h) => formatDateKey(h.date) === k).length}건)
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-1 px-5 pt-2.5 border-b border-gray-200 dark:border-gray-700 shrink-0 overflow-x-auto">
+              {dateKeys.map((k) => {
+                const isActive = k === selectedDate;
+                return (
+                  <button
+                    key={k}
+                    onClick={() => setSelectedDate(k)}
+                    className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-md border border-b-0 transition-colors ${
+                      isActive
+                        ? 'bg-white dark:bg-gray-800 text-indigo-700 dark:text-indigo-300 border-gray-200 dark:border-gray-700'
+                        : 'bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-transparent hover:bg-gray-200 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    {k}
+                    <span className={`ml-1.5 px-1 py-0.5 rounded-full text-[10px] ${isActive ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
+                      {history.filter((h) => formatDateKey(h.date) === k).length}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="px-5 py-2.5 border-b border-gray-200 dark:border-gray-700 flex items-center gap-3 shrink-0">
               <input
                 value={drawingFilter}
                 onChange={(e) => setDrawingFilter(e.target.value)}
                 placeholder="도면번호 검색..."
                 className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:border-indigo-500 flex-1 max-w-xs"
               />
-              <span className="text-xs text-gray-400 ml-auto">{entriesForDate.length}건</span>
+              <span className="text-xs text-gray-400 ml-auto">{selectedDate} · {entriesForDate.length}건</span>
             </div>
 
             <div className="flex-1 overflow-y-auto">
