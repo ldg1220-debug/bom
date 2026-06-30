@@ -110,6 +110,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [rev, setRev] = useState('');
   const [parts, setParts] = useState([EMPTY_PART()]);
   const [rawText, setRawText] = useState('');
+  const [checkedPartIds, setCheckedPartIds] = useState(new Set());
   const [mode, setMode] = useState('new');
   const [targetDrawingId, setTargetDrawingId] = useState('');
   const [newRevValue, setNewRevValue] = useState('');
@@ -172,6 +173,36 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       const next = prev.filter((p) => p.id !== id);
       return next.length > 0 ? next : [EMPTY_PART()];
     });
+    setCheckedPartIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  function togglePartChecked(id) {
+    setCheckedPartIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllChecked() {
+    setCheckedPartIds((prev) => {
+      const allChecked = parts.length > 0 && parts.every((p) => prev.has(p.id));
+      return allChecked ? new Set() : new Set(parts.map((p) => p.id));
+    });
+  }
+
+  function deleteCheckedRows() {
+    if (checkedPartIds.size === 0) return;
+    setParts((prev) => {
+      const next = prev.filter((p) => !checkedPartIds.has(p.id));
+      return next.length > 0 ? next : [EMPTY_PART()];
+    });
+    setCheckedPartIds(new Set());
   }
 
   function handleKeyDown(e, rowIndex, colIndex, totalCols) {
@@ -199,6 +230,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     setRev('');
     setParts([EMPTY_PART()]);
     setRawText('');
+    setCheckedPartIds(new Set());
     setMode('new');
     setTargetDrawingId('');
     setNewRevValue('');
@@ -308,6 +340,9 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     }
     return new Set(Object.keys(count).filter((k) => count[k] > 1));
   }, [parts]);
+
+  const checkedCount = useMemo(() => parts.filter((p) => checkedPartIds.has(p.id)).length, [parts, checkedPartIds]);
+  const allChecked = parts.length > 0 && checkedCount === parts.length;
 
   const COLS = ['seq', 'partNumber', 'description', 'material', 'qty', 'unit', 'specRemark'];
   const COL_LABELS = ['No', 'PART NO.', '품명', '재질', '수량', '단위', 'SPEC & REMARK'];
@@ -448,6 +483,14 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
             <table className="min-w-full text-xs">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
+                  <th className="w-7 px-1 py-2 border-b border-gray-200">
+                    <input
+                      type="checkbox"
+                      checked={allChecked}
+                      onChange={toggleAllChecked}
+                      title="전체 선택 / 전체 해제"
+                    />
+                  </th>
                   {COL_LABELS.map((label, i) => (
                     <th
                       key={i}
@@ -464,6 +507,13 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
                   const isDup = !!(part.partNumber && dupPartNums.has(part.partNumber));
                   return (
                   <tr key={part.id} className={`border-b border-gray-100 hover:bg-blue-50 ${isDup ? 'bg-yellow-50' : ''}`}>
+                    <td className="px-1 py-0.5 text-center">
+                      <input
+                        type="checkbox"
+                        checked={checkedPartIds.has(part.id)}
+                        onChange={() => togglePartChecked(part.id)}
+                      />
+                    </td>
                     {COLS.map((col, colIdx) => (
                       <td key={col} className="px-1 py-0.5">
                         <input
@@ -503,13 +553,24 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
             >
               + 행 추가
             </button>
-            <button
-              onClick={() => setParts([EMPTY_PART()])}
-              className="text-xs text-red-400 hover:text-red-600"
-              title="파트리스트 전체 초기화"
-            >
-              파트 초기화
-            </button>
+            <div className="flex items-center gap-3">
+              {checkedCount > 0 && (
+                <button
+                  onClick={deleteCheckedRows}
+                  className="text-xs text-red-600 hover:text-red-800 font-medium"
+                  title="체크된 행 삭제"
+                >
+                  체크 삭제 ({checkedCount})
+                </button>
+              )}
+              <button
+                onClick={() => setParts([EMPTY_PART()])}
+                className="text-xs text-red-400 hover:text-red-600"
+                title="파트리스트 전체 초기화"
+              >
+                파트 초기화
+              </button>
+            </div>
           </div>
         </div>
 
