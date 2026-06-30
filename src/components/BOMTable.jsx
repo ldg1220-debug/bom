@@ -618,10 +618,16 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
             className="text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
           >전체 접기</button>
           {checkedRowIds.size > 0 && (
-            <button
-              onClick={deleteChecked}
-              className="text-xs bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded"
-            >행 삭제 ({checkedRowIds.size})</button>
+            <>
+              <button
+                onClick={() => setCheckedRowIds(new Set())}
+                className="text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              >체크 해제 ({checkedRowIds.size})</button>
+              <button
+                onClick={deleteChecked}
+                className="text-xs bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded"
+              >행 삭제 ({checkedRowIds.size})</button>
+            </>
           )}
           <ColumnManager colDefs={colDefs} fixedKeys={EBOM_FIXED_KEYS} hiddenCols={hiddenCols} onToggle={toggleCol} />
         </div>
