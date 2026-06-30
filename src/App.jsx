@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import XLSX from 'xlsx-js-style';
+import { saveProject } from './utils/db';
 import { BOMProvider, useBOM } from './context/BOMContext';
 import { useDarkMode } from './hooks/useDarkMode';
 import { exportToExcel, exportMBOMToExcel } from './utils/excelExport';
@@ -186,6 +187,32 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [state, onChangeProject]);
+
+  // 최신 state를 ref로 유지해서 종료 핸들러 클로저에서도 최신값을 사용할 수 있게 함
+  const latestStateRef = useRef(state);
+  useEffect(() => { latestStateRef.current = state; }, [state]);
+
+  // Electron 종료 확인: 닫기 직전 저장 여부를 묻고, 승인 시 즉시 saveProject 후 닫는다.
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.onBeforeClose) return;
+
+    api.onBeforeClose(() => {
+      const wantSave = confirm(
+        '저장하고 닫으시겠습니까?\n\n' +
+        '[확인] 저장 후 닫기  [취소] 닫지 않고 계속 작업'
+      );
+      if (!wantSave) {
+        api.cancelClose();
+        return;
+      }
+      // 디바운스 대기 없이 즉시 저장한 뒤 닫는다
+      saveProject(latestStateRef.current)
+        .catch((err) => console.error('종료 저장 실패:', err))
+        .finally(() => api.confirmClose());
+    });
+    // electronAPI IPC 리스너는 등록 후 해제 API가 없으므로 cleanup 생략
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950">

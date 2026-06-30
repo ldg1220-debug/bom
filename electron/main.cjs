@@ -23,6 +23,37 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // 닫기 버튼을 눌렀을 때 renderer에게 먼저 확인을 요청하고, 응답을 받은 뒤에만 실제로 닫는다.
+  let closeConfirmed = false;
+  let closeInProgress = false; // 이미 대화상자가 떠 있는 동안 중복 요청 방지
+
+  win.on('close', (e) => {
+    if (closeConfirmed) return;
+    e.preventDefault();
+    if (closeInProgress) return; // 이미 renderer에게 요청 중이면 무시
+    closeInProgress = true;
+    win.webContents.send('before-close');
+  });
+
+  function onConfirmClose() {
+    closeInProgress = false;
+    closeConfirmed = true;
+    win.close();
+  }
+  function onCancelClose() {
+    closeInProgress = false;
+    // 사용자가 취소 → 닫지 않음
+  }
+
+  ipcMain.on('confirm-close', onConfirmClose);
+  ipcMain.on('cancel-close', onCancelClose);
+
+  // 창이 파괴될 때 리스너 정리
+  win.once('closed', () => {
+    ipcMain.removeListener('confirm-close', onConfirmClose);
+    ipcMain.removeListener('cancel-close', onCancelClose);
+  });
 }
 
 function httpsRequest(options, body) {
