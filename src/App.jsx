@@ -87,18 +87,27 @@ function importFromExcel(file, dispatch, onDone) {
           }
           if (parentPart) {
             const d = drawingsMap.get(parentPart);
-            d.parts.push({
-              seq: parseInt(no) || d.parts.length + 1,
-              partNumber: childPart,
-              description,
-              material,
-              qty: unitQty,
-              unit: unit || 'EA',
-              specRemark: remark,
-              spec,
-              staNo,
-              processType,
-            });
+            const seqNum = parseInt(no) || null;
+            // BOM 트리 전개 방식의 원본 Excel에서는 같은 도면의 파트가
+            // 부모별 경로마다 반복 출력됨 → 중복 방지
+            // seq가 있을 때만 중복 판정 (같은 NO.+자품번 조합이 이미 있으면 스킵)
+            const isDuplicate = seqNum !== null && d.parts.some(
+              (p) => p.seq === seqNum && p.partNumber === childPart
+            );
+            if (!isDuplicate) {
+              d.parts.push({
+                seq: seqNum || d.parts.length + 1,
+                partNumber: childPart,
+                description,
+                material,
+                qty: unitQty,
+                unit: unit || 'EA',
+                specRemark: remark,
+                spec,
+                staNo,
+                processType,
+              });
+            }
           }
         }
       }
