@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useBOM } from '../context/BOMContext';
 import ProjectSettingsModal from './ProjectSettingsModal';
 
-export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar, onOpenExport, onOpenImport, onOpenHistory }) {
+export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar, onOpenExport, onOpenImport, onOpenHistory, onOpenSavePoints }) {
   const { state } = useBOM();
   const [showSettings, setShowSettings] = useState(false);
 
@@ -62,6 +62,15 @@ export default function Header({ activeTab, setActiveTab, onChangeProject, isDar
 
         {/* 오른쪽: 수정이력 / Excel / 다크모드 / 프로젝트 변경 */}
         <div className="flex items-center gap-1.5">
+          {/* 세이브 포인트 */}
+          <button
+            onClick={onOpenSavePoints}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium hidden sm:block"
+            title="이전 세이브 포인트로 복원 (48시간 보관)"
+          >
+            🕒 세이브 포인트
+          </button>
+
           {/* 수정이력 */}
           <button
             onClick={onOpenHistory}

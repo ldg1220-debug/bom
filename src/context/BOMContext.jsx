@@ -2,7 +2,7 @@ import { createContext, useContext, useReducer, useEffect, useState } from 'reac
 import { v4 as uuidv4 } from 'uuid';
 import { buildBOMRows, detectCircularReferences } from '../utils/bomMapper';
 import { recalculate } from '../utils/calculations';
-import { saveProject, loadProject } from '../utils/db';
+import { saveProject, loadProject, ensureDailyCheckpoint, pruneExpiredCheckpoints } from '../utils/db';
 
 const BOMContext = createContext(null);
 
@@ -386,14 +386,20 @@ export function BOMProvider({ children, projectMeta }) {
     loadProject(projectMeta.id).then((data) => {
       if (data) dispatch({ type: 'LOAD_PROJECT', data });
       setIsLoading(false);
+      pruneExpiredCheckpoints(projectMeta.id).catch(() => {});
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 자동 저장 (1.5초 디바운스)
+  // 자동 저장 (1.5초 디바운스). 저장 직전, 오늘자 세이브 포인트가 없으면
+  // "오늘 수정이 반영되기 전" 상태를 먼저 보관해 둔다 (48시간 후 자동 삭제).
   useEffect(() => {
     if (isLoading) return;
     const timer = setTimeout(() => {
-      saveProject(state).catch((err) => console.error('저장 실패:', err));
+      ensureDailyCheckpoint(state.project.id)
+        .catch((err) => console.error('세이브 포인트 생성 실패:', err))
+        .finally(() => {
+          saveProject(state).catch((err) => console.error('저장 실패:', err));
+        });
     }, 1500);
     return () => clearTimeout(timer);
   }, [state, isLoading]);

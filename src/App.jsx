@@ -12,6 +12,7 @@ import MBOMTable from './components/MBOMTable';
 import ProjectScreen from './components/ProjectScreen';
 import ExportDialog from './components/ExportDialog';
 import RevisionHistoryModal from './components/RevisionHistoryModal';
+import SavePointsModal from './components/SavePointsModal';
 
 // ── 엑셀 불러오기 ────────────────────────────────────────────────
 function importFromExcel(file, dispatch, onDone) {
@@ -117,6 +118,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
   });
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSavePoints, setShowSavePoints] = useState(false);
   const importInputRef = useRef(null);
 
   function handleDrawingAdded() {
@@ -197,6 +199,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
         onOpenExport={() => { if (state.bomRows.length > 0) setShowExportDialog(true); }}
         onOpenImport={() => importInputRef.current?.click()}
         onOpenHistory={() => setShowHistory(true)}
+        onOpenSavePoints={() => setShowSavePoints(true)}
       />
       <div className="flex flex-1 overflow-hidden relative">
         {/* 모바일 오버레이 */}
@@ -266,6 +269,10 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
 
       {showHistory && (
         <RevisionHistoryModal onClose={() => setShowHistory(false)} />
+      )}
+
+      {showSavePoints && (
+        <SavePointsModal onClose={() => setShowSavePoints(false)} />
       )}
     </div>
   );
