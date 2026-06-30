@@ -367,7 +367,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
         const next = new Set(prev);
         for (let i = from; i <= to; i++) {
           const r = displayRows[i];
-          if (!r || r.isAssyRow) continue;
+          if (!r || (r.isAssyRow && !r.parentPart)) continue;
           value ? next.add(r.id) : next.delete(r.id);
         }
         return next;
@@ -406,10 +406,21 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
     const rowInfos = [];
     for (const rowId of checkedRowIds) {
       const row = bomRows.find((r) => r.id === rowId);
-      if (row && !row.isAssyRow) rowInfos.push({ drawingId: row.drawingId, partSeq: row.no });
+      if (!row) continue;
+      if (!row.isAssyRow) {
+        // 리프 부품 행: drawingId는 이미 부모 도면의 id, no는 그 parts 배열의 seq
+        rowInfos.push({ drawingId: row.drawingId, partSeq: row.no });
+      } else if (row.parentPart) {
+        // 조립도면 헤더 행: drawingId는 자기 자신(자식)의 id이므로, 부모 도면을
+        // drawingNumber(row.parentPart)로 다시 찾아 그 parts 항목(row.no)을 제거한다.
+        // 도면 자체는 삭제되지 않고 등록 목록에 남으며, 다른 부모가 같은 도면을
+        // 참조 중이면 그 연결은 별개로 그대로 유지된다.
+        const parentDrawing = state.drawings.find((d) => d.drawingNumber === row.parentPart);
+        if (parentDrawing) rowInfos.push({ drawingId: parentDrawing.id, partSeq: row.no });
+      }
     }
     if (!rowInfos.length) return;
-    if (confirm(`${rowInfos.length}개 부품 행을 삭제하시겠습니까?\n(도면에서도 해당 파트가 제거됩니다)`)) {
+    if (confirm(`${rowInfos.length}개 항목을 삭제하시겠습니까?\n(조립도면 헤더 행을 포함한 경우, 하위 부품도 함께 제거됩니다)`)) {
       dispatch({ type: 'DELETE_BOM_PART_ROWS', rowInfos });
       setCheckedRowIds(new Set());
     }
@@ -676,7 +687,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                       return (
                         <td key="_drag" style={{ width: getColWidth(col), minWidth: getColWidth(col) }}
                           className="border-r border-gray-200 dark:border-gray-700 text-center px-0.5">
-                          {!row.isAssyRow && (
+                          {(!row.isAssyRow || row.parentPart) && (
                             <div className="flex items-center justify-center gap-0.5">
                               <input
                                 type="checkbox"
