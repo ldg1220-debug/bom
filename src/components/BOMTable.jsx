@@ -233,6 +233,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
 
   const [checkedRowIds, setCheckedRowIds] = useState(new Set());
   const lastCheckClickRef = useRef({ drag: null, purchase: null });
+  const [showClearMenu, setShowClearMenu] = useState(false);
 
   function toggleCol(key) {
     if (EBOM_FIXED_KEYS.has(key)) return;
@@ -400,6 +401,38 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
       dispatch({ type: 'SET_PURCHASE_UNITS_RANGE', keys: [pKey], value });
     }
     lastCheckClickRef.current.purchase = rowIndex;
+  }
+
+  function clearRowChecks() {
+    setCheckedRowIds(new Set());
+    setShowClearMenu(false);
+  }
+
+  function clearPurchaseChecks() {
+    const keys = [...(state.purchaseUnits || [])];
+    if (keys.length) dispatch({ type: 'SET_PURCHASE_UNITS_RANGE', keys, value: false });
+    setShowClearMenu(false);
+  }
+
+  function clearBoth() {
+    clearRowChecks();
+    clearPurchaseChecks();
+  }
+
+  function handleClearClick() {
+    const hasRowChecks = checkedRowIds.size > 0;
+    const hasPurchaseChecks = (state.purchaseUnits?.size || 0) > 0;
+    if (hasRowChecks && hasPurchaseChecks) {
+      setShowClearMenu((o) => !o);
+      return;
+    }
+    if (hasRowChecks) {
+      clearRowChecks();
+      return;
+    }
+    if (hasPurchaseChecks) {
+      if (confirm('구매단위 체크는 BOM에 저장되는 데이터입니다. 모두 해제하시겠습니까?')) clearPurchaseChecks();
+    }
   }
 
   function deleteChecked() {
@@ -617,17 +650,38 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
             onClick={() => setCollapsed(new Set(bomRows.filter((r) => r.isAssyRow).map((r) => r.childPart)))}
             className="text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
           >전체 접기</button>
-          {checkedRowIds.size > 0 && (
-            <>
+          {(checkedRowIds.size > 0 || (state.purchaseUnits?.size || 0) > 0) && (
+            <div className="relative">
               <button
-                onClick={() => setCheckedRowIds(new Set())}
+                onClick={handleClearClick}
                 className="text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-              >체크 해제 ({checkedRowIds.size})</button>
-              <button
-                onClick={deleteChecked}
-                className="text-xs bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded"
-              >행 삭제 ({checkedRowIds.size})</button>
-            </>
+              >체크 해제 {checkedRowIds.size > 0 && `(행 ${checkedRowIds.size})`}{(state.purchaseUnits?.size || 0) > 0 && ` (구매단위 ${state.purchaseUnits.size})`}</button>
+              {showClearMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowClearMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl py-1 w-44">
+                    <button
+                      onClick={clearRowChecks}
+                      className="w-full text-left text-xs px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200"
+                    >행 선택만 해제 ({checkedRowIds.size})</button>
+                    <button
+                      onClick={() => { if (confirm('구매단위 체크는 BOM에 저장되는 데이터입니다. 해제하시겠습니까?')) clearPurchaseChecks(); }}
+                      className="w-full text-left text-xs px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200"
+                    >구매단위만 해제 ({state.purchaseUnits.size})</button>
+                    <button
+                      onClick={() => { if (confirm('구매단위 체크는 BOM에 저장되는 데이터입니다. 모두 해제하시겠습니까?')) clearBoth(); }}
+                      className="w-full text-left text-xs px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 text-red-600 dark:text-red-400 border-t border-gray-100 dark:border-gray-700"
+                    >둘 다 해제</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {checkedRowIds.size > 0 && (
+            <button
+              onClick={deleteChecked}
+              className="text-xs bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded"
+            >행 삭제 ({checkedRowIds.size})</button>
           )}
           <ColumnManager colDefs={colDefs} fixedKeys={EBOM_FIXED_KEYS} hiddenCols={hiddenCols} onToggle={toggleCol} />
         </div>

@@ -114,14 +114,50 @@ function reducer(state, action) {
       const existingIndex = state.drawings.findIndex(
         (d) => d.drawingNumber === drawing.drawingNumber
       );
-      const newDrawings =
-        existingIndex >= 0
-          ? state.drawings.map((d, i) =>
-              i === existingIndex ? { ...drawing, id: d.id } : d
-            )
-          : [...state.drawings, drawing];
+      let historyEntry = null;
+      let newDrawings;
+      if (existingIndex >= 0) {
+        const old = state.drawings[existingIndex];
+        const oldByPN = new Map(old.parts.map((p) => [p.partNumber, p]));
+        const newByPN = new Map(drawing.parts.map((p) => [p.partNumber, p]));
+        const added = [], removed = [], changed = [];
+        for (const [pn, p] of newByPN) {
+          if (!oldByPN.has(pn)) {
+            added.push({ seq: p.seq, partNumber: p.partNumber, description: p.description });
+          } else {
+            const op = oldByPN.get(pn);
+            if (op.qty !== p.qty) {
+              changed.push({ seq: p.seq, partNumber: p.partNumber, description: p.description, qtyFrom: op.qty, qtyTo: p.qty });
+            }
+          }
+        }
+        for (const [pn, p] of oldByPN) {
+          if (!newByPN.has(pn)) removed.push({ seq: p.seq, partNumber: p.partNumber, description: p.description });
+        }
+        const revChanged = old.rev !== drawing.rev;
+        if (revChanged || added.length || removed.length || changed.length) {
+          historyEntry = {
+            id: uuidv4(),
+            date: new Date().toISOString(),
+            drawingId: old.id,
+            drawingNumber: old.drawingNumber,
+            type: 'revision',
+            oldRev: old.rev,
+            newRev: drawing.rev,
+            added, removed, changed,
+            partCountBefore: old.parts.length,
+            partCountAfter: drawing.parts.length,
+          };
+        }
+        newDrawings = state.drawings.map((d, i) => (i === existingIndex ? { ...drawing, id: d.id } : d));
+      } else {
+        newDrawings = [...state.drawings, drawing];
+      }
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
-      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+      return {
+        ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings,
+        history: historyEntry ? [...state.history, historyEntry] : state.history,
+      };
     }
 
     case 'DELETE_DRAWING': {
@@ -236,6 +272,7 @@ function reducer(state, action) {
         if (isAssyRow) {
           const up = {};
           if ('description' in fields) up.title = fields.description;
+          if ('rev' in fields) up.rev = fields.rev;
           return { ...d, ...up };
         }
         return {
