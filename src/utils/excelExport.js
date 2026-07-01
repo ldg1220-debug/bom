@@ -23,10 +23,11 @@ function hdrStyle(bg = 'BDD7EE') {
   return makeStyle({ bg, bold: true, sz: 9, align: 'center', wrap: true });
 }
 
+// BOMTable.jsx의 LV_BG_LIGHT와 동일한 레벨별 색상표 (L1은 흰색)
+const LV_BG = ['', 'FFF9C4', 'C8E6C9', 'DBEAFE', 'EDE9FE', 'FCE7F3', 'FED7AA', 'CFFAFE'];
+
 function levelBg(level) {
-  if (level === 2) return 'FFF9C4';
-  if (level === 3) return 'C8E6C9';
-  return 'FFFFFF';
+  return LV_BG[level - 1] || 'FFFFFF';
 }
 
 function cv(value, style) {
