@@ -227,6 +227,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
 
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [closingInProgress, setClosingInProgress] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);
 
   // Electron 종료 확인: 닫기 직전 저장/취소/저장 안 함 중 선택하게 한다.
   useEffect(() => {
@@ -235,6 +236,17 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
     api.onBeforeClose(() => setShowCloseConfirm(true));
     // electronAPI IPC 리스너는 등록 후 해제 API가 없으므로 cleanup 생략
   }, []);
+
+  // 자동 업데이트: 새 버전이 백그라운드에 다운로드되면 배너로 안내
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api?.onUpdateReady) return;
+    api.onUpdateReady(() => setUpdateReady(true));
+  }, []);
+
+  function handleRestartToUpdate() {
+    window.electronAPI?.restartToUpdate();
+  }
 
   function handleSaveAndClose() {
     setClosingInProgress(true);
@@ -376,6 +388,29 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
                 자동저장이 주기적으로 동작하므로, "저장하지 않고 닫기"를 선택해도 직전 몇 초 내의 변경사항만 유실될 수 있습니다.
               </p>
             </div>
+          </div>
+        </div>
+      )}
+
+      {updateReady && (
+        <div className="fixed bottom-4 right-4 z-[100] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl p-4 max-w-sm">
+          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">🔄 새 버전이 준비되었습니다</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            백그라운드에서 업데이트를 이미 받아뒀습니다. 재시작하면 바로 적용됩니다.
+          </p>
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={handleRestartToUpdate}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-1.5 rounded-lg text-sm transition-colors"
+            >
+              지금 재시작
+            </button>
+            <button
+              onClick={() => setUpdateReady(false)}
+              className="px-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 font-medium py-1.5 rounded-lg text-sm transition-colors"
+            >
+              나중에
+            </button>
           </div>
         </div>
       )}

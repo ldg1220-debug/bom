@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - claude/bom-generator-app-aKqO8
-    paths-ignore:
-      - 'dist-electron/**'
   workflow_dispatch: {}
 
 permissions:
@@ -28,19 +26,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Windows installer
-        run: npm run electron:build:win -- --publish=never
+      # 앱 버전을 올려야 electron-updater가 "새 버전"으로 인식하고,
+      # GitHub Release 태그도 버전마다 달라진다.
+      - name: Bump patch version
+        run: npm version patch --no-git-tag-version
 
-      - name: Commit and push installer
+      - name: Build and publish Windows installer to GitHub Releases
+        run: npm run electron:build:win -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit version bump
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f dist-electron/*.exe dist-electron/*.exe.blockmap
+          git add package.json package-lock.json
           if git diff --cached --quiet; then
-            echo "No installer changes to commit."
+            echo "No version change to commit."
             exit 0
           fi
-          git commit -m "chore: update Windows installer build [skip ci]"
+          git commit -m "chore: bump version for release [skip ci]"
           git pull --rebase origin "${{ github.ref_name }}"
           git push origin HEAD:"${{ github.ref_name }}"

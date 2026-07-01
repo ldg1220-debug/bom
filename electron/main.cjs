@@ -1,10 +1,13 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const https = require('https');
 const path = require('path');
 
 const IS_DEV = process.env.ELECTRON_DEV === 'true';
+
+let mainWindow = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -17,6 +20,8 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  mainWindow = win;
+  win.once('closed', () => { if (mainWindow === win) mainWindow = null; });
 
   if (IS_DEV) {
     win.loadURL('http://localhost:5173');
@@ -94,11 +99,40 @@ ipcMain.handle('gemini-get', async (_evt, { url }) => {
   return httpsRequest({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET' });
 });
 
+// ── 자동 업데이트 (GitHub Releases) ──────────────────────────────
+// 백그라운드에서 새 버전을 확인·다운로드하고, 준비되면 renderer에 알려
+// 사용자가 원할 때 재시작해서 적용하도록 한다. 패키징된 빌드에서만 동작.
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4시간마다 재확인
+
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+autoUpdater.on('update-downloaded', () => {
+  mainWindow?.webContents.send('update-ready');
+});
+autoUpdater.on('error', (err) => {
+  console.error('자동 업데이트 오류:', err?.message || err);
+});
+
+ipcMain.on('restart-to-update', () => {
+  autoUpdater.quitAndInstall();
+});
+
+function checkForUpdates() {
+  if (IS_DEV || !app.isPackaged) return;
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error('업데이트 확인 실패:', err?.message || err);
+  });
+}
+
 app.whenReady().then(() => {
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  checkForUpdates();
+  setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS);
 });
 
 app.on('window-all-closed', () => {

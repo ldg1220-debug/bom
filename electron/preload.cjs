@@ -11,4 +11,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onBeforeClose: (cb) => ipcRenderer.on('before-close', cb),
   confirmClose:  ()   => ipcRenderer.send('confirm-close'),
   cancelClose:   ()   => ipcRenderer.send('cancel-close'),
+
+  // 자동 업데이트: 새 버전이 백그라운드에 다운로드되면 알려주고, 재시작 트리거 제공
+  onUpdateReady: (cb) => ipcRenderer.on('update-ready', cb),
+  restartToUpdate: () => ipcRenderer.send('restart-to-update'),
 });
