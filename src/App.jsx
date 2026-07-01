@@ -225,27 +225,34 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
   const latestStateRef = useRef(state);
   useEffect(() => { latestStateRef.current = state; }, [state]);
 
-  // Electron 종료 확인: 닫기 직전 저장 여부를 묻고, 승인 시 즉시 saveProject 후 닫는다.
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [closingInProgress, setClosingInProgress] = useState(false);
+
+  // Electron 종료 확인: 닫기 직전 저장/취소/저장 안 함 중 선택하게 한다.
   useEffect(() => {
     const api = window.electronAPI;
     if (!api?.onBeforeClose) return;
-
-    api.onBeforeClose(() => {
-      const wantSave = confirm(
-        '저장하고 닫으시겠습니까?\n\n' +
-        '[확인] 저장 후 닫기  [취소] 닫지 않고 계속 작업'
-      );
-      if (!wantSave) {
-        api.cancelClose();
-        return;
-      }
-      // 디바운스 대기 없이 즉시 저장한 뒤 닫는다
-      saveProject(latestStateRef.current)
-        .catch((err) => console.error('종료 저장 실패:', err))
-        .finally(() => api.confirmClose());
-    });
+    api.onBeforeClose(() => setShowCloseConfirm(true));
     // electronAPI IPC 리스너는 등록 후 해제 API가 없으므로 cleanup 생략
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleSaveAndClose() {
+    setClosingInProgress(true);
+    // 디바운스 대기 없이 즉시 저장한 뒤 닫는다
+    saveProject(latestStateRef.current)
+      .catch((err) => console.error('종료 저장 실패:', err))
+      .finally(() => window.electronAPI?.confirmClose());
+  }
+
+  function handleCloseWithoutSaving() {
+    // 자동저장으로 이미 반영된 상태 그대로 닫는다 (직전 몇 초의 미저장 변경만 유실될 수 있음)
+    window.electronAPI?.confirmClose();
+  }
+
+  function handleCancelClose() {
+    setShowCloseConfirm(false);
+    window.electronAPI?.cancelClose();
+  }
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950">
@@ -335,6 +342,42 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
 
       {showSavePoints && (
         <SavePointsModal onClose={() => setShowSavePoints(false)} />
+      )}
+
+      {showCloseConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="bg-blue-800 dark:bg-gray-900 text-white px-5 py-3">
+              <p className="font-bold text-sm">프로그램을 닫으시겠습니까?</p>
+            </div>
+            <div className="p-5 space-y-2">
+              <button
+                onClick={handleSaveAndClose}
+                disabled={closingInProgress}
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-lg text-sm transition-colors"
+              >
+                {closingInProgress ? '저장 중...' : '저장 후 닫기'}
+              </button>
+              <button
+                onClick={handleCloseWithoutSaving}
+                disabled={closingInProgress}
+                className="w-full bg-red-50 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900 disabled:opacity-50 text-red-600 dark:text-red-400 font-medium py-2.5 rounded-lg text-sm border border-red-200 dark:border-red-800 transition-colors"
+              >
+                저장하지 않고 닫기
+              </button>
+              <button
+                onClick={handleCancelClose}
+                disabled={closingInProgress}
+                className="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 text-gray-600 dark:text-gray-300 font-medium py-2.5 rounded-lg text-sm transition-colors"
+              >
+                취소
+              </button>
+              <p className="text-xs text-gray-400 dark:text-gray-500 pt-1">
+                자동저장이 주기적으로 동작하므로, "저장하지 않고 닫기"를 선택해도 직전 몇 초 내의 변경사항만 유실될 수 있습니다.
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
