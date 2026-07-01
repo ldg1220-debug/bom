@@ -88,12 +88,11 @@ function importFromExcel(file, dispatch, onDone) {
           if (parentPart) {
             const d = drawingsMap.get(parentPart);
             const seqNum = parseInt(no) || null;
-            // BOM 트리 전개 방식의 원본 Excel에서는 같은 도면의 파트가
-            // 부모별 경로마다 반복 출력됨 → 중복 방지
-            // seq가 있을 때만 중복 판정 (같은 NO.+자품번 조합이 이미 있으면 스킵)
-            const isDuplicate = seqNum !== null && d.parts.some(
-              (p) => p.seq === seqNum && p.partNumber === childPart
-            );
+            // BOM 트리 전개 방식의 원본 Excel에서는 같은 도면이 여러 부모 경로에
+            // 걸쳐 반복 출력되며, 중간 항목 하나가 생략되면 이후 NO.가 전부 밀린다.
+            // 따라서 NO.가 아닌 자품번 단독으로 중복을 판정해야 한다
+            // (같은 도면 안에 동일 부품이 두 번 등록될 이유가 없음).
+            const isDuplicate = childPart && d.parts.some((p) => p.partNumber === childPart);
             if (!isDuplicate) {
               d.parts.push({
                 seq: seqNum || d.parts.length + 1,
