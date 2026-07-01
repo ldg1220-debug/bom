@@ -11,3 +11,19 @@
   color: #6b7280 !important;
 }
 
+/* 사이드바에서 이동한 행 강조 */
+@keyframes jump-flash {
+  0%, 100% { background-color: transparent; }
+  15%, 60% { background-color: #fef08a; }
+}
+.jump-flash-row td {
+  animation: jump-flash 2s ease-out;
+}
+.dark .jump-flash-row td {
+  animation-name: jump-flash-dark;
+}
+@keyframes jump-flash-dark {
+  0%, 100% { background-color: transparent; }
+  15%, 60% { background-color: #713f12; }
+}
+

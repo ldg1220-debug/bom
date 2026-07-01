@@ -8,6 +8,7 @@ export default function Sidebar({
   onClose,
   isCollapsed,
   onToggleCollapse,
+  onJumpToDrawing,
 }) {
   const { state, dispatch } = useBOM();
   const { drawings, bomRows } = state;
@@ -18,6 +19,13 @@ export default function Sidebar({
     const next = expandedId === id ? null : id;
     setExpandedId(next);
     onSelectDrawing(next);
+    onJumpToDrawing && onJumpToDrawing(id);
+  }
+
+  function handlePartClick(e, partNumber) {
+    e.stopPropagation();
+    const target = drawings.find((dw) => dw.drawingNumber === partNumber);
+    if (target) onJumpToDrawing && onJumpToDrawing(target.id);
   }
 
   function deleteDrawing(e, drawing) {
@@ -209,7 +217,12 @@ export default function Sidebar({
                                   (dw) => dw.drawingNumber === p.partNumber
                                 );
                                 return (
-                                  <tr key={p.seq} className="border-t border-gray-50 dark:border-gray-700">
+                                  <tr
+                                    key={p.seq}
+                                    className={`border-t border-gray-50 dark:border-gray-700 ${isRegistered ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : ''}`}
+                                    onClick={isRegistered ? (e) => handlePartClick(e, p.partNumber) : undefined}
+                                    title={isRegistered ? '클릭하여 E-BOM에서 이 도면 위치로 이동' : undefined}
+                                  >
                                     <td className="px-1 py-0.5 text-gray-400 dark:text-gray-500">{p.seq}</td>
                                     <td
                                       className={`px-1 py-0.5 font-mono truncate max-w-[80px] ${

@@ -146,6 +146,13 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showSavePoints, setShowSavePoints] = useState(false);
+  const [jumpTarget, setJumpTarget] = useState(null); // { drawingId, nonce } — 사이드바에서 E-BOM으로 이동 요청
+
+  function handleJumpToDrawing(drawingId) {
+    if (!drawingId) return;
+    setActiveTab('ebom');
+    setJumpTarget((prev) => ({ drawingId, nonce: (prev?.nonce || 0) + 1 }));
+  }
   const importInputRef = useRef(null);
 
   function handleDrawingAdded() {
@@ -280,6 +287,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
             onClose={() => setSidebarOpen(false)}
             isCollapsed={sidebarCollapsed}
             onToggleCollapse={toggleSidebarCollapsed}
+            onJumpToDrawing={handleJumpToDrawing}
           />
         </div>
 
@@ -298,6 +306,7 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
               isDark={isDark}
               onOpenImport={() => importInputRef.current?.click()}
               onOpenExport={() => setShowExportDialog(true)}
+              jumpTarget={jumpTarget}
             />
           </div>
 

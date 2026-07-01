@@ -25,6 +25,20 @@ function applyCollapse(rows, collapsed) {
   return visible;
 }
 
+// targetIndex 행의 조상 assy 행들의 childPart(도면번호) 목록을 반환 (bomRows는 DFS 선행순회 순서이므로,
+// 레벨이 1씩 감소하는 가장 가까운 이전 assy 행을 거슬러 올라가며 찾는다)
+function getAncestorChildParts(bomRows, targetIndex) {
+  const ancestors = [];
+  let level = bomRows[targetIndex].level;
+  for (let i = targetIndex - 1; i >= 0 && level > 1; i--) {
+    if (bomRows[i].isAssyRow && bomRows[i].level === level - 1) {
+      ancestors.push(bomRows[i].childPart);
+      level -= 1;
+    }
+  }
+  return ancestors;
+}
+
 function countDescendants(rows, rootChildPart) {
   let count = 0, inside = false, parentLevel = null;
   for (const row of rows) {
@@ -203,7 +217,7 @@ function makeColDefs(totalQty) {
   ];
 }
 
-export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOpenExport }) {
+export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOpenExport, jumpTarget }) {
   const { state, dispatch } = useBOM();
   const { bomRows, project, circularWarnings } = state;
 
@@ -234,6 +248,9 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
   const [checkedRowIds, setCheckedRowIds] = useState(new Set());
   const lastCheckClickRef = useRef({ drag: null, purchase: null });
   const [showClearMenu, setShowClearMenu] = useState(false);
+
+  const [pendingScrollRowId, setPendingScrollRowId] = useState(null);
+  const [flashRowId, setFlashRowId] = useState(null);
 
   function toggleCol(key) {
     if (EBOM_FIXED_KEYS.has(key)) return;
@@ -299,6 +316,40 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
       return true;
     });
   }, [bomRows, collapsed, isFiltering, searchText, typeFilter, levelFilter]);
+
+  // 사이드바에서 도면 클릭 → 해당 도면의 첫 등장 위치로 이동
+  // (필터 해제 + 조상 접힘 해제 후 스크롤을 예약, 실제 스크롤은 DOM 반영 후 아래 effect에서 수행)
+  useEffect(() => {
+    if (!jumpTarget?.drawingId) return;
+    const idx = bomRows.findIndex((r) => r.isAssyRow && r.drawingId === jumpTarget.drawingId);
+    if (idx === -1) return;
+
+    setSearchText('');
+    setTypeFilter('all');
+    setLevelFilter(0);
+
+    const ancestors = getAncestorChildParts(bomRows, idx);
+    if (ancestors.length) {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        ancestors.forEach((a) => next.delete(a));
+        return next;
+      });
+    }
+    setPendingScrollRowId(bomRows[idx].id);
+  }, [jumpTarget?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 필터/접힘 해제가 반영되어 대상 행이 실제로 DOM에 나타나면 스크롤 + 하이라이트
+  useEffect(() => {
+    if (!pendingScrollRowId) return;
+    const el = document.querySelector(`tr[data-row-id="${pendingScrollRowId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashRowId(pendingScrollRowId);
+    setPendingScrollRowId(null);
+    const timer = setTimeout(() => setFlashRowId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [pendingScrollRowId, displayRows]);
 
   useEffect(() => {
     function onKey(e) {
@@ -723,6 +774,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
               return (
                 <tr
                   key={row.id}
+                  data-row-id={row.id}
                   style={{ backgroundColor: bg || undefined }}
                   data-rev-deleted={row._deletedInRev ? '' : undefined}
                   className={[
@@ -732,6 +784,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                     isDragOver ? 'outline outline-2 outline-blue-400' : '',
                     !bg ? 'bg-white dark:bg-gray-900' : '',
                     row._deletedInRev ? 'rev-deleted-row' : '',
+                    flashRowId === row.id ? 'jump-flash-row' : '',
                   ].join(' ')}
                   draggable={!row.isAssyRow}
                   onDragStart={(e) => handleDragStart(e, row)}
