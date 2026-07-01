@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 
 // 비고에 "삭제"가 포함된 항목은 수량 0 처리 + 활성 순번(NO.) 카운트에서 제외
-function isDeletedRemark(remark) {
+export function isDeletedRemark(remark) {
   return typeof remark === 'string' && remark.includes('삭제');
 }
 

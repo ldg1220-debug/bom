@@ -112,6 +112,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [rawText, setRawText] = useState('');
   const [checkedPartIds, setCheckedPartIds] = useState(new Set());
   const [targetDrawingId, setTargetDrawingId] = useState('');
+  const [mergeChoice, setMergeChoice] = useState(null); // { existing, validParts, newRevInput } — REV 동일/미지정 시 3택 모달
   const isEditMode = !!editDrawing;
 
   const uploadRef = useRef(null);
@@ -326,31 +327,9 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         return;
       }
 
-      // REV가 같거나 비어있음 → 이어 붙이기인지 전체 교체인지 확인
-      const wantsAppend = confirm(
-        `"${trimmed}" 도면이 이미 등록되어 있습니다 (REV ${existingRev || '—'}).\n\n` +
-        `[확인] 이어 붙이기 — 입력한 파트를 기존 파트에 추가합니다.\n` +
-        `[취소] 다른 작업 선택 (전체 교체 / 취소)`
-      );
-      if (wantsAppend) {
-        if (validParts.length === 0) { alert('추가할 파트가 없습니다.'); return; }
-        dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: existing.id, newParts: validParts });
-        onDrawingAdded && onDrawingAdded();
-        resetForm();
-        uploadRef.current?.clear();
-        return;
-      }
-      const wantsOverwrite = confirm(
-        `대신 전체 내용을 교체할까요?\n\n` +
-        `입력한 파트 리스트가 도면의 전체 내용으로 적용되며, 기존에 있었지만 이번 목록에 없는 파트는 삭제 처리(취소선)되고 변경된 항목은 수정이력에 기록됩니다.\n\n` +
-        `[확인] 전체 교체  [취소] 작업 취소`
-      );
-      if (!wantsOverwrite) return;
+      // REV가 같거나 비어있음 → 이어 붙이기 / 전체 교체 / 취소 중 하나를 모달로 선택
       if (validParts.length === 0) { alert('파트가 없습니다.'); return; }
-      dispatch({ type: 'APPLY_REVISION', drawingId: existing.id, newParts: validParts, newRev: newRevInput });
-      onDrawingAdded && onDrawingAdded();
-      resetForm();
-      uploadRef.current?.clear();
+      setMergeChoice({ existing, validParts, newRevInput });
       return;
     }
 
@@ -374,10 +353,11 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     }
 
     // 신규 도면
+    const newId = uuidv4();
     dispatch({
       type: 'ADD_DRAWING',
       drawing: {
-        id: uuidv4(),
+        id: newId,
         drawingNumber: trimmed,
         title: title.trim(),
         rev: rev.trim(),
@@ -390,6 +370,46 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     onDrawingAdded && onDrawingAdded();
     resetForm();
     uploadRef.current?.clear();
+
+    // 좌/우 대칭 부품처럼 같은 내용을 다른 도면번호로도 등록해야 하는 경우를 위한 안내
+    // (필요 없으면 그냥 취소하면 되므로 등록 흐름을 막지 않음)
+    if (confirm(
+      `"${trimmed}" 도면을 등록했습니다.\n\n` +
+      `좌/우 대칭 부품처럼 같은 파트 목록을 다른 도면번호로도 등록해야 하나요?\n` +
+      `[확인] 다른 도면번호로 복제 등록  [취소] 완료`
+    )) {
+      const input = prompt('새 도면번호를 입력하세요 (예: 기존 번호 뒤에 -L / -R):', `${trimmed}-`);
+      const newNum = (input || '').trim();
+      if (newNum) {
+        if (drawings.some((d) => d.drawingNumber === newNum)) {
+          alert(`"${newNum}" 도면번호는 이미 사용 중입니다.`);
+        } else {
+          dispatch({ type: 'DUPLICATE_DRAWING', sourceDrawingId: newId, newDrawingNumber: newNum });
+        }
+      }
+    }
+  }
+
+  function handleMergeAppend() {
+    const { existing, validParts } = mergeChoice;
+    dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: existing.id, newParts: validParts });
+    setMergeChoice(null);
+    onDrawingAdded && onDrawingAdded();
+    resetForm();
+    uploadRef.current?.clear();
+  }
+
+  function handleMergeOverwrite() {
+    const { existing, validParts, newRevInput } = mergeChoice;
+    dispatch({ type: 'APPLY_REVISION', drawingId: existing.id, newParts: validParts, newRev: newRevInput });
+    setMergeChoice(null);
+    onDrawingAdded && onDrawingAdded();
+    resetForm();
+    uploadRef.current?.clear();
+  }
+
+  function handleMergeCancel() {
+    setMergeChoice(null);
   }
 
   const [showRaw, setShowRaw] = useState(false);
@@ -642,6 +662,42 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
           </button>
         </div>
       </div>
+
+      {mergeChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="bg-blue-700 text-white px-5 py-3">
+              <p className="font-bold text-sm">"{mergeChoice.existing.drawingNumber}" 도면이 이미 등록되어 있습니다</p>
+              <p className="text-blue-200 text-xs mt-0.5">REV {mergeChoice.existing.rev || '—'} · 입력한 파트를 어떻게 반영할까요?</p>
+            </div>
+            <div className="p-4 space-y-2">
+              <button
+                onClick={handleMergeAppend}
+                className="w-full text-left bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg px-4 py-3"
+              >
+                <p className="text-sm font-semibold text-blue-800">이어 붙이기</p>
+                <p className="text-xs text-blue-600 mt-0.5">입력한 파트를 기존 파트 뒤에 추가합니다.</p>
+              </button>
+              <button
+                onClick={handleMergeOverwrite}
+                className="w-full text-left bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg px-4 py-3"
+              >
+                <p className="text-sm font-semibold text-amber-800">전체 교체</p>
+                <p className="text-xs text-amber-600 mt-0.5">
+                  입력한 파트 목록을 도면의 전체 내용으로 적용합니다. 기존에 있었지만 이번 목록에
+                  없는 파트는 삭제 처리(취소선)되고, 변경 내용은 수정이력에 기록됩니다.
+                </p>
+              </button>
+              <button
+                onClick={handleMergeCancel}
+                className="w-full text-center bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg px-4 py-2.5 text-sm font-medium"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

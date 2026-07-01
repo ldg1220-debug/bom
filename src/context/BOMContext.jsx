@@ -1,6 +1,6 @@
 import { createContext, useContext, useReducer, useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { buildBOMRows, detectCircularReferences } from '../utils/bomMapper';
+import { buildBOMRows, detectCircularReferences, isDeletedRemark } from '../utils/bomMapper';
 import { recalculate } from '../utils/calculations';
 import { saveProject, loadProject, ensureDailyCheckpoint, pruneExpiredCheckpoints } from '../utils/db';
 
@@ -43,6 +43,20 @@ function applyRevisionDiff(existingParts, newParts) {
 
     if (!np) {
       result.push({ ...ep, qty: 0, _deletedInRev: true, specRemark: '삭제' });
+    } else if (isDeletedRemark(np.specRemark)) {
+      // 새 목록에서 이 부품이 명시적으로 삭제 표시됨(취소선 인식 또는 사용자가
+      // SPEC & REMARK에 직접 "삭제"를 입력) — qty 비교와 무관하게 삭제로 처리하고
+      // 사용자가 입력한 specRemark 값을 그대로 보존한다.
+      result.push({
+        ...ep,
+        qty: 0,
+        _deletedInRev: true,
+        _qtyChangedFrom: null,
+        specRemark: np.specRemark,
+        description: np.description || ep.description,
+        material: np.material || ep.material,
+        unit: np.unit || ep.unit,
+      });
     } else if (np.qty !== ep.qty) {
       result.push({
         ...ep,
@@ -61,6 +75,9 @@ function applyRevisionDiff(existingParts, newParts) {
         _qtyChangedFrom: null,
         description: np.description !== undefined ? np.description : ep.description,
         material: np.material !== undefined ? np.material : ep.material,
+        specRemark: np.specRemark !== undefined ? np.specRemark : ep.specRemark,
+        unit: np.unit !== undefined ? np.unit : ep.unit,
+        spec: np.spec !== undefined ? np.spec : ep.spec,
       });
     }
   }
