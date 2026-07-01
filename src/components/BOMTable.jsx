@@ -740,7 +740,12 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                   onDragEnd={handleDragEnd}
                 >
                   {visibleColDefs.map((col) => {
-                    const value = row[col.key];
+                    // NO. 열은 비고에 "삭제"가 포함된 항목을 제외한 활성 순번(displayNo)을 표시
+                    // (실제 편집/삭제/연결 시 식별자로 쓰이는 row.no 자체는 건드리지 않음)
+                    // displayNo가 null이면 삭제 항목 → 빈 칸으로 표시 (row.no로 폴백하면 안 됨)
+                    const value = col.key === 'no'
+                      ? (row.displayNo === null ? '' : (row.displayNo ?? row.no ?? ''))
+                      : row[col.key];
                     const isSelected = selectedField === col.key && selectedRowIds.has(row.id);
 
                     if (col.key === '_drag') {

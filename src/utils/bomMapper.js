@@ -1,5 +1,10 @@
 import { v4 as uuidv4 } from 'uuid';
 
+// 비고에 "삭제"가 포함된 항목은 수량 0 처리 + 활성 순번(NO.) 카운트에서 제외
+function isDeletedRemark(remark) {
+  return typeof remark === 'string' && remark.includes('삭제');
+}
+
 export function detectCircularReferences(drawings) {
   const drawingMap = new Map(drawings.map((d) => [d.drawingNumber, d]));
   const warnings = [];
@@ -49,7 +54,7 @@ export function buildBOMRows(drawings) {
   const rows = [];
   let globalSeq = 1;
 
-  function addDrawingRows(drawing, parentPartNumber, level, multiplier, visitedPath, parentPartSeq = 0) {
+  function addDrawingRows(drawing, parentPartNumber, level, multiplier, visitedPath, parentPartSeq = 0, parentDisplayNo = 0) {
     if (visitedPath.has(drawing.drawingNumber)) return;
 
     const newVisited = new Set(visitedPath);
@@ -66,6 +71,7 @@ export function buildBOMRows(drawings) {
       parentPart: parentPartNumber,
       rev: drawing.rev,
       no: parentPartSeq,
+      displayNo: parentDisplayNo,
       childPart: drawing.drawingNumber,
       description: drawing.title,
       material: 'ASSY',
@@ -85,7 +91,12 @@ export function buildBOMRows(drawings) {
     });
 
     const sortedParts = [...drawing.parts].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+    let activeNo = 0;
     for (const part of sortedParts) {
+      const isDeleted = isDeletedRemark(part.specRemark) || part._deletedInRev;
+      if (!isDeleted) activeNo += 1;
+      const displayNo = isDeleted ? null : activeNo;
+      const effectiveQty = isDeleted ? 0 : part.qty;
       const childDrawing = part._noChild ? null : drawingMap.get(part.partNumber);
 
       if (childDrawing) {
@@ -93,9 +104,10 @@ export function buildBOMRows(drawings) {
           childDrawing,
           drawing.drawingNumber,
           level + 1,
-          part.qty * multiplier,
+          effectiveQty * multiplier,
           newVisited,
-          part.seq
+          part.seq,
+          displayNo
         );
       } else {
         rows.push({
@@ -109,6 +121,7 @@ export function buildBOMRows(drawings) {
           parentPart: drawing.drawingNumber,
           rev: '',
           no: part.seq,
+          displayNo,
           childPart: part.partNumber,
           description: part.description,
           material: part.material,
@@ -118,7 +131,7 @@ export function buildBOMRows(drawings) {
           sizeL: '',
           weight: '',
           unit: part.unit || 'EA',
-          unitQty: part.qty,
+          unitQty: effectiveQty,
           multiplier,
           qtyPerOne: 0,
           qtyTotal: 0,
@@ -127,7 +140,7 @@ export function buildBOMRows(drawings) {
           drawingId: drawing.id,
           isAssyRow: false,
           _noChild: part._noChild || false,
-          _deletedInRev: part._deletedInRev || false,
+          _deletedInRev: part._deletedInRev || isDeleted,
           _qtyChangedFrom: part._qtyChangedFrom ?? null,
         });
       }

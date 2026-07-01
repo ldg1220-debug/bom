@@ -176,7 +176,7 @@ export function exportToExcel(state) {
       cv(row.drawingDate || '', ds),
       cv(row.parentPart || '', ds),
       cv(row.rev || '', dc),
-      nv(row.no || '', dc),
+      nv(row.displayNo === null ? '' : (row.displayNo ?? row.no ?? ''), dc),
       cv(row.childPart || '', { ...ds, font: { ...ds.font, bold: row.isAssyRow } }),
       cv(row.description || '', ds),
       cv(row.material || '', ds),
