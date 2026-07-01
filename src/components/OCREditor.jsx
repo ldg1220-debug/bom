@@ -134,9 +134,28 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   }, [editDrawing]);
 
   function handleOCRComplete(parsed) {
+    const newDrawingNumber = (parsed.drawingNumber || '').trim();
+    const currentDrawingNumber = drawingNumber.trim();
+    // 폼에 남아있는 도면번호와 새로 인식된 도면번호가 다르면, 이전 내용은
+    // 다른(이미 제거됐거나 무관한) 도면의 잔여 데이터이므로 이어붙이지 않고 교체한다.
+    // (같은 도면을 여러 스크린샷으로 나눠 연속 스캔하는 경우엔 도면번호가 그대로이므로
+    // 아래의 이어붙이기 경로를 그대로 탄다)
+    const isDifferentDrawing = !!currentDrawingNumber && !!newDrawingNumber && currentDrawingNumber !== newDrawingNumber;
+
     if (parsed.drawingNumber) setDrawingNumber(parsed.drawingNumber);
     if (parsed.title) setTitle(parsed.title);
     if (parsed.rev) setRev(parsed.rev);
+
+    if (isDifferentDrawing) {
+      setRawText(parsed.rawText || '');
+      setParts(
+        parsed.parts && parsed.parts.length > 0
+          ? parsed.parts.map((p) => ({ ...p, id: uuidv4() }))
+          : [EMPTY_PART()]
+      );
+      return;
+    }
+
     setRawText((prev) => prev ? prev + '\n\n---\n\n' + (parsed.rawText || '') : (parsed.rawText || ''));
 
     if (parsed.parts && parsed.parts.length > 0) {

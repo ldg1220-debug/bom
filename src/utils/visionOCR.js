@@ -12,15 +12,21 @@ function blobToBase64(blob) {
 const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트리스트 스크린샷입니다.
 표와 타이틀 블록에서 정보를 추출하여 아래 JSON 형식으로만 응답하세요 (JSON 외 다른 텍스트 없이).
 
-취소선(삭제 표시) 확인 — 반드시 아래 순서로 작업하세요:
-1. 먼저 표의 행을 위에서 아래로 하나씩, 절대 건너뛰지 말고 순서대로 훑으세요.
-2. 각 행마다: 그 행의 글자(부품번호, 품명, 재질, 수량 등) 가운데를 가로지르는
-   직선(취소선, strikethrough)이 있는지 개별적으로 판단하세요. 취소선은 검은색
-   또는 빨간색 직선일 수 있고, 텍스트 전체 또는 일부에만 그어져 있을 수도 있습니다.
-3. 취소선이 있으면 그 행의 isDeleted를 true로, 없으면 false로 설정하세요.
-   애매하면 이미지를 다시 확대해서 보듯이 신중하게 재확인한 뒤 결정하세요.
-4. isDeleted는 표의 행 수만큼 빠짐없이 각각 판단해야 합니다 (전부 false로
-   일괄 처리하지 마세요 — 실제로 취소선이 있는 행이 있다면 반드시 true여야 합니다).
+취소선(삭제 표시) 확인 — 반드시 아래 2단계로, 서로 독립적으로 두 번 판단하세요:
+
+[1단계] deletedSeqs 작성 — 다른 어떤 것도 하기 전에 먼저 이 작업만 하세요.
+- 표의 맨 위 행부터 맨 아래 행까지, 한 행씩 순서대로 훑으면서 그 행 전체
+  (품번, 품명, 재질, 수량 등)를 가로지르는 직선(취소선)이 있는지만 확인하세요.
+- 취소선은 검은색 또는 빨간색일 수 있고, 얇거나 굵을 수 있으며, 텍스트 일부
+  또는 전체에 걸쳐 있을 수 있습니다. 표에 행이 여러 개면 매 행마다 반드시
+  확인하세요 — 취소선이 있는 행을 하나라도 놓치지 않도록 각 행을 개별적으로
+  자세히 들여다보세요.
+- 취소선이 있다고 판단한 행의 순번(NO.) 값만 모아 deletedSeqs 배열에 담으세요.
+  취소선이 있는 행이 하나도 없으면 빈 배열 []로 응답하세요.
+
+[2단계] parts 작성 — 1단계와 별개로, 각 행의 데이터를 그대로 추출하세요.
+- 각 파트의 isDeleted는 그 seq가 1단계의 deletedSeqs 배열에 포함되어 있으면
+  true, 아니면 false로 일관되게 설정하세요.
 
 기타 규칙:
 - partNumber: 정확히 읽어주세요. 예) RM-LC01-FC23344, CP709017-401
@@ -38,6 +44,7 @@ const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트
   "drawingNumber": "",
   "title": "",
   "rev": "",
+  "deletedSeqs": [],
   "parts": [
     {
       "seq": 1,
@@ -99,15 +106,19 @@ async function listGeminiModels(apiKey) {
 }
 
 function parseResult(parsed, text) {
+  // deletedSeqs(1단계 독립 스캔 결과)와 parts[].isDeleted(2단계) 중 하나라도
+  // 삭제로 판단했으면 삭제 처리 — 두 신호 중 어느 한쪽이 놓쳐도 다른 쪽이 보완
+  const deletedSeqSet = new Set((parsed.deletedSeqs || []).map((s) => String(s)));
   return {
     drawingNumber: parsed.drawingNumber || '',
     title: parsed.title || '',
     rev: parsed.rev || '',
     parts: (parsed.parts || []).map((p, i) => {
       const specRemark = String(p.specRemark || '').trim();
+      const isDeleted = !!p.isDeleted || deletedSeqSet.has(String(p.seq));
       // isDeleted(취소선 감지) → 다운스트림 로직(비고에 "삭제" 포함 시 수량 0 처리 +
       // NO. 순번 제외)이 그대로 적용되도록 specRemark에 "삭제"를 보강
-      const markedDeleted = p.isDeleted && !specRemark.includes('삭제')
+      const markedDeleted = isDeleted && !specRemark.includes('삭제')
         ? `${specRemark} 삭제`.trim()
         : specRemark;
       return {
