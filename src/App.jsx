@@ -12,7 +12,7 @@ import BOMTable from './components/BOMTable';
 import MBOMTable from './components/MBOMTable';
 import ProjectScreen from './components/ProjectScreen';
 import ExportDialog from './components/ExportDialog';
-import RevisionHistoryModal from './components/RevisionHistoryModal';
+import HistoryTab from './components/HistoryTab';
 import SavePointsModal from './components/SavePointsModal';
 
 // ── 엑셀 불러오기 ────────────────────────────────────────────────
@@ -144,7 +144,6 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
     try { return localStorage.getItem('bom:sidebar:collapsed') === 'true'; } catch { return false; }
   });
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [showSavePoints, setShowSavePoints] = useState(false);
   const [jumpTarget, setJumpTarget] = useState(null); // { drawingId, nonce } — 사이드바에서 E-BOM으로 이동 요청
 
@@ -277,7 +276,6 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
         onOpenExport={() => { if (state.bomRows.length > 0) setShowExportDialog(true); }}
         onOpenImport={() => importInputRef.current?.click()}
-        onOpenHistory={() => setShowHistory(true)}
         onOpenSavePoints={() => setShowSavePoints(true)}
       />
       <div className="flex flex-1 overflow-hidden relative">
@@ -332,6 +330,10 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
           <div className={`h-full ${activeTab === 'mbom' ? '' : 'hidden'}`}>
             <MBOMTable />
           </div>
+
+          <div className={`h-full ${activeTab === 'history' ? '' : 'hidden'}`}>
+            <HistoryTab />
+          </div>
         </main>
       </div>
 
@@ -346,10 +348,6 @@ function AppContent({ onChangeProject, isDark, onToggleDark }) {
 
       {showExportDialog && (
         <ExportDialog onExport={handleExport} onClose={() => setShowExportDialog(false)} />
-      )}
-
-      {showHistory && (
-        <RevisionHistoryModal onClose={() => setShowHistory(false)} />
       )}
 
       {showSavePoints && (

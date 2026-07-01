@@ -322,20 +322,19 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
 
     // 수정 모드(재등록): 완전 교체(ADD_DRAWING) 대신 리비전 적용(APPLY_REVISION)을 사용해
     // 더 이상 참조되지 않는 파트(하위 도면 포함)를 취소선으로 보존하고, 그 하위 도면이
-    // 부모 연결을 잃고 독립 루트로 떠버리는 일이 없도록 한다.
+    // 부모 연결을 잃고 독립 루트로 떠버리는 일이 없도록 한다. -R/-L 짝처럼 다른
+    // 도면번호에도 동시 반영할 수 있도록 모달(동시 반영 필드 포함)을 거친다.
     if (isEditMode) {
       if (validParts.length === 0) { alert('파트가 없습니다.'); return; }
-      dispatch({
-        type: 'APPLY_REVISION',
-        drawingId: editDrawing.id,
-        newParts: validParts,
-        newRev: rev.trim(),
-        newTitle: title.trim(),
+      setMergeChoice({
+        existing: editDrawing,
+        validParts,
+        newRevInput: rev.trim(),
+        newTitleInput: title.trim(),
+        existingRev: (editDrawing.rev || '').trim(),
+        revChanged: false,
+        isEditSave: true,
       });
-      onDrawingAdded && onDrawingAdded();
-      resetForm();
-      uploadRef.current?.clear();
-      onEditCancel && onEditCancel();
       return;
     }
 
@@ -386,26 +385,27 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     }
   }
 
-  function finishMerge() {
+  function finishMerge(wasEditSave) {
     setMergeChoice(null);
     setSyncNumber('');
     onDrawingAdded && onDrawingAdded();
     resetForm();
     uploadRef.current?.clear();
+    if (wasEditSave) onEditCancel && onEditCancel();
   }
 
   function handleMergeAppend() {
     const { existing, validParts } = mergeChoice;
     dispatch({ type: 'APPEND_PARTS_TO_DRAWING', drawingId: existing.id, newParts: validParts });
     applySyncTarget('append', validParts);
-    finishMerge();
+    finishMerge(false);
   }
 
   function handleMergeOverwrite() {
-    const { existing, validParts, newRevInput } = mergeChoice;
-    dispatch({ type: 'APPLY_REVISION', drawingId: existing.id, newParts: validParts, newRev: newRevInput });
+    const { existing, validParts, newRevInput, newTitleInput, isEditSave } = mergeChoice;
+    dispatch({ type: 'APPLY_REVISION', drawingId: existing.id, newParts: validParts, newRev: newRevInput, newTitle: newTitleInput });
     applySyncTarget('revision', validParts, newRevInput);
-    finishMerge();
+    finishMerge(isEditSave);
   }
 
   function handleMergeCancel() {
@@ -689,15 +689,19 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
             <div className="bg-blue-700 text-white px-5 py-3">
-              <p className="font-bold text-sm">"{mergeChoice.existing.drawingNumber}" 도면이 이미 등록되어 있습니다</p>
+              <p className="font-bold text-sm">
+                {mergeChoice.isEditSave ? `"${mergeChoice.existing.drawingNumber}" 도면 수정` : `"${mergeChoice.existing.drawingNumber}" 도면이 이미 등록되어 있습니다`}
+              </p>
               <p className="text-blue-200 text-xs mt-0.5">
-                {mergeChoice.revChanged
+                {mergeChoice.isEditSave
+                  ? `REV ${mergeChoice.existingRev || '—'} → ${mergeChoice.newRevInput || mergeChoice.existingRev || '—'} · 수정 내용을 저장합니다.`
+                  : mergeChoice.revChanged
                   ? `REV ${mergeChoice.existingRev} → ${mergeChoice.newRevInput}로 교체합니다.`
                   : `REV ${mergeChoice.existingRev || '—'} · 입력한 파트를 어떻게 반영할까요?`}
               </p>
             </div>
             <div className="p-4 space-y-2">
-              {!mergeChoice.revChanged && (
+              {!mergeChoice.revChanged && !mergeChoice.isEditSave && (
                 <button
                   onClick={handleMergeAppend}
                   className="w-full text-left bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg px-4 py-3"
@@ -711,7 +715,7 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
                 className="w-full text-left bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg px-4 py-3"
               >
                 <p className="text-sm font-semibold text-amber-800">
-                  {mergeChoice.revChanged ? '리비전 교체' : '전체 교체'}
+                  {mergeChoice.isEditSave ? '저장' : mergeChoice.revChanged ? '리비전 교체' : '전체 교체'}
                 </p>
                 <p className="text-xs text-amber-600 mt-0.5">
                   입력한 파트 목록을 도면의 전체 내용으로 적용합니다. 기존에 있었지만 이번 목록에

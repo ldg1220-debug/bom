@@ -197,6 +197,12 @@ function reducer(state, action) {
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings, purchaseUnits: newPU };
     }
 
+    // 필요 없는 수정이력 항목 삭제 (단일/일괄 모두 ids 배열로 처리)
+    case 'DELETE_HISTORY_ENTRIES': {
+      const idSet = new Set(action.ids);
+      return { ...state, history: state.history.filter((h) => !idSet.has(h.id)) };
+    }
+
     case 'SET_PURCHASE_UNITS_RANGE': {
       const next = new Set(state.purchaseUnits);
       for (const key of action.keys) { action.value ? next.add(key) : next.delete(key); }

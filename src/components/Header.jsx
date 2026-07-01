@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useBOM } from '../context/BOMContext';
 import ProjectSettingsModal from './ProjectSettingsModal';
 
-export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar, onOpenExport, onOpenImport, onOpenHistory, onOpenSavePoints }) {
+export default function Header({ activeTab, setActiveTab, onChangeProject, isDark, onToggleDark, onToggleSidebar, onOpenExport, onOpenImport, onOpenSavePoints }) {
   const { state } = useBOM();
   const [showSettings, setShowSettings] = useState(false);
 
@@ -45,6 +45,7 @@ export default function Header({ activeTab, setActiveTab, onChangeProject, isDar
             { id: 'register', label: '도면 등록' },
             { id: 'ebom',     label: 'E-BOM'   },
             { id: 'mbom',     label: 'M-BOM'   },
+            { id: 'history',  label: '📋 수정이력' },
           ].map(({ id, label }) => (
             <button
               key={id}
@@ -69,15 +70,6 @@ export default function Header({ activeTab, setActiveTab, onChangeProject, isDar
             title="이전 세이브 포인트로 복원 (48시간 보관)"
           >
             🕒 세이브 포인트
-          </button>
-
-          {/* 수정이력 */}
-          <button
-            onClick={onOpenHistory}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded font-medium hidden sm:block"
-            title="리비전/파트 수정이력 보기"
-          >
-            📋 수정이력
           </button>
 
           {/* Excel 내보내기 */}
