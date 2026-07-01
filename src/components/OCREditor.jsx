@@ -335,24 +335,42 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
       return;
     }
 
-    // 신규 도면 (또는 수정 모드)
+    // 수정 모드(재등록): 완전 교체(ADD_DRAWING) 대신 리비전 적용(APPLY_REVISION)을 사용해
+    // 더 이상 참조되지 않는 파트(하위 도면 포함)를 취소선으로 보존하고, 그 하위 도면이
+    // 부모 연결을 잃고 독립 루트로 떠버리는 일이 없도록 한다.
+    if (isEditMode) {
+      if (validParts.length === 0) { alert('파트가 없습니다.'); return; }
+      dispatch({
+        type: 'APPLY_REVISION',
+        drawingId: editDrawing.id,
+        newParts: validParts,
+        newRev: rev.trim(),
+        newTitle: title.trim(),
+      });
+      onDrawingAdded && onDrawingAdded();
+      resetForm();
+      uploadRef.current?.clear();
+      onEditCancel && onEditCancel();
+      return;
+    }
+
+    // 신규 도면
     dispatch({
       type: 'ADD_DRAWING',
       drawing: {
-        id: editDrawing ? editDrawing.id : uuidv4(),
+        id: uuidv4(),
         drawingNumber: trimmed,
         title: title.trim(),
         rev: rev.trim(),
         parts: validParts,
         rawOcr: rawText,
-        createdAt: editDrawing ? editDrawing.createdAt : new Date().toISOString(),
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     });
     onDrawingAdded && onDrawingAdded();
     resetForm();
     uploadRef.current?.clear();
-    if (isEditMode) onEditCancel && onEditCancel();
   }
 
   const [showRaw, setShowRaw] = useState(false);

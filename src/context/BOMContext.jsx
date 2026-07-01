@@ -342,7 +342,7 @@ function reducer(state, action) {
     }
 
     case 'APPLY_REVISION': {
-      const { drawingId, newParts, newRev } = action;
+      const { drawingId, newParts, newRev, newTitle } = action;
       let historyEntry = null;
       const newDrawings = state.drawings.map((d) => {
         if (d.id !== drawingId) return d;
@@ -373,7 +373,7 @@ function reducer(state, action) {
           partCountBefore: d.parts.filter((p) => !p._deletedInRev).length,
           partCountAfter: merged.filter((p) => !p._deletedInRev).length,
         };
-        return { ...d, parts: merged, rev: resolvedRev, updatedAt: now };
+        return { ...d, parts: merged, rev: resolvedRev, title: newTitle || d.title, updatedAt: now };
       });
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
       return {

@@ -54,7 +54,7 @@ export function buildBOMRows(drawings) {
   const rows = [];
   let globalSeq = 1;
 
-  function addDrawingRows(drawing, parentPartNumber, level, multiplier, visitedPath, parentPartSeq = 0, parentDisplayNo = 0) {
+  function addDrawingRows(drawing, parentPartNumber, level, multiplier, visitedPath, parentPartSeq = 0, parentDisplayNo = 0, parentDeleted = false) {
     if (visitedPath.has(drawing.drawingNumber)) return;
 
     const newVisited = new Set(visitedPath);
@@ -88,6 +88,7 @@ export function buildBOMRows(drawings) {
       remark: '',
       drawingId: drawing.id,
       isAssyRow: true,
+      _deletedInRev: parentDeleted,
     });
 
     const sortedParts = [...drawing.parts].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
@@ -107,7 +108,8 @@ export function buildBOMRows(drawings) {
           effectiveQty * multiplier,
           newVisited,
           part.seq,
-          displayNo
+          displayNo,
+          isDeleted
         );
       } else {
         rows.push({
@@ -140,7 +142,7 @@ export function buildBOMRows(drawings) {
           drawingId: drawing.id,
           isAssyRow: false,
           _noChild: part._noChild || false,
-          _deletedInRev: part._deletedInRev || isDeleted,
+          _deletedInRev: part._deletedInRev || isDeleted || parentDeleted,
           _qtyChangedFrom: part._qtyChangedFrom ?? null,
         });
       }

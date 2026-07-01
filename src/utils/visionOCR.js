@@ -12,21 +12,27 @@ function blobToBase64(blob) {
 const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트리스트 스크린샷입니다.
 표와 타이틀 블록에서 정보를 추출하여 아래 JSON 형식으로만 응답하세요 (JSON 외 다른 텍스트 없이).
 
-규칙:
+취소선(삭제 표시) 확인 — 반드시 아래 순서로 작업하세요:
+1. 먼저 표의 행을 위에서 아래로 하나씩, 절대 건너뛰지 말고 순서대로 훑으세요.
+2. 각 행마다: 그 행의 글자(부품번호, 품명, 재질, 수량 등) 가운데를 가로지르는
+   직선(취소선, strikethrough)이 있는지 개별적으로 판단하세요. 취소선은 검은색
+   또는 빨간색 직선일 수 있고, 텍스트 전체 또는 일부에만 그어져 있을 수도 있습니다.
+3. 취소선이 있으면 그 행의 isDeleted를 true로, 없으면 false로 설정하세요.
+   애매하면 이미지를 다시 확대해서 보듯이 신중하게 재확인한 뒤 결정하세요.
+4. isDeleted는 표의 행 수만큼 빠짐없이 각각 판단해야 합니다 (전부 false로
+   일괄 처리하지 마세요 — 실제로 취소선이 있는 행이 있다면 반드시 true여야 합니다).
+
+기타 규칙:
 - partNumber: 정확히 읽어주세요. 예) RM-LC01-FC23344, CP709017-401
 - seq: 표의 순번(NO.) 숫자
 - qty: 숫자만 (없으면 1)
 - unit: EA, SET, M 등 (없으면 "EA")
 - material: 재질 (A5052P-H32, SUS304 등, 없으면 "")
-- specRemark: SPEC & REMARK 열 내용 (없으면 "")
+- specRemark: SPEC & REMARK 열 내용 (없으면 ""). isDeleted 여부와 무관하게
+  원래 SPEC & REMARK 열에 적힌 내용 그대로 적으세요 ("삭제"는 여기 적지 않아도 됩니다).
 - drawingNumber: 도면번호 (DWG NO. 또는 타이틀 블록에서)
 - title: 도면 제목
 - rev: 개정번호 (A, B 등)
-- 중요: 표에서 행 전체(부품번호·품명·재질·수량 등)에 취소선(strikethrough)이 그어져
-  있으면 그 부품은 도면상 삭제된 항목입니다. 이런 행은 specRemark 값 끝에
-  반드시 "삭제"라는 단어를 포함시켜 응답하세요 (예: 기존 비고가 "M6X20L"이면
-  "M6X20L 삭제", 비고가 없으면 "삭제"). 취소선이 없는 일반 행에는 "삭제"를
-  추가하지 마세요.
 
 {
   "drawingNumber": "",
@@ -40,7 +46,8 @@ const PROMPT = `이 이미지는 기계 부품 도면(Engineering BOM)의 파트
       "material": "",
       "qty": 1,
       "unit": "EA",
-      "specRemark": ""
+      "specRemark": "",
+      "isDeleted": false
     }
   ]
 }`;
@@ -96,15 +103,23 @@ function parseResult(parsed, text) {
     drawingNumber: parsed.drawingNumber || '',
     title: parsed.title || '',
     rev: parsed.rev || '',
-    parts: (parsed.parts || []).map((p, i) => ({
-      seq: Number(p.seq) || i + 1,
-      partNumber: String(p.partNumber || '').trim(),
-      description: String(p.description || '').trim(),
-      material: String(p.material || '').trim(),
-      qty: parseFloat(p.qty) || 1,
-      unit: String(p.unit || 'EA').trim().toUpperCase(),
-      specRemark: String(p.specRemark || '').trim(),
-    })),
+    parts: (parsed.parts || []).map((p, i) => {
+      const specRemark = String(p.specRemark || '').trim();
+      // isDeleted(취소선 감지) → 다운스트림 로직(비고에 "삭제" 포함 시 수량 0 처리 +
+      // NO. 순번 제외)이 그대로 적용되도록 specRemark에 "삭제"를 보강
+      const markedDeleted = p.isDeleted && !specRemark.includes('삭제')
+        ? `${specRemark} 삭제`.trim()
+        : specRemark;
+      return {
+        seq: Number(p.seq) || i + 1,
+        partNumber: String(p.partNumber || '').trim(),
+        description: String(p.description || '').trim(),
+        material: String(p.material || '').trim(),
+        qty: parseFloat(p.qty) || 1,
+        unit: String(p.unit || 'EA').trim().toUpperCase(),
+        specRemark: markedDeleted,
+      };
+    }),
     rawText: text,
   };
 }
