@@ -113,6 +113,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
   const [checkedPartIds, setCheckedPartIds] = useState(new Set());
   const [targetDrawingId, setTargetDrawingId] = useState('');
   const [mergeChoice, setMergeChoice] = useState(null); // { existing, validParts, newRevInput } — REV 동일/미지정 시 3택 모달
+  const [duplicateOnAdd, setDuplicateOnAdd] = useState(false); // 좌/우 대칭 등, 등록과 동시에 다른 도면번호로도 복제
+  const [duplicateNumber, setDuplicateNumber] = useState('');
   const isEditMode = !!editDrawing;
 
   const uploadRef = useRef(null);
@@ -249,6 +251,8 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
     setRawText('');
     setCheckedPartIds(new Set());
     setTargetDrawingId('');
+    setDuplicateOnAdd(false);
+    setDuplicateNumber('');
   }
 
   function addToBOM() {
@@ -367,27 +371,20 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
         updatedAt: new Date().toISOString(),
       },
     });
+    // 좌/우 대칭 부품 등, 사용자가 미리 체크해둔 경우에만 같은 내용을 다른
+    // 도면번호로도 즉시 복제 등록 (기본은 체크 안 함 — 매번 물어보지 않음)
+    if (duplicateOnAdd && duplicateNumber.trim()) {
+      const newNum = duplicateNumber.trim();
+      if (drawings.some((d) => d.drawingNumber === newNum)) {
+        alert(`"${newNum}" 도면번호는 이미 사용 중이라 복제 등록을 건너뛰었습니다.`);
+      } else {
+        dispatch({ type: 'DUPLICATE_DRAWING', sourceDrawingId: newId, newDrawingNumber: newNum });
+      }
+    }
+
     onDrawingAdded && onDrawingAdded();
     resetForm();
     uploadRef.current?.clear();
-
-    // 좌/우 대칭 부품처럼 같은 내용을 다른 도면번호로도 등록해야 하는 경우를 위한 안내
-    // (필요 없으면 그냥 취소하면 되므로 등록 흐름을 막지 않음)
-    if (confirm(
-      `"${trimmed}" 도면을 등록했습니다.\n\n` +
-      `좌/우 대칭 부품처럼 같은 파트 목록을 다른 도면번호로도 등록해야 하나요?\n` +
-      `[확인] 다른 도면번호로 복제 등록  [취소] 완료`
-    )) {
-      const input = prompt('새 도면번호를 입력하세요 (예: 기존 번호 뒤에 -L / -R):', `${trimmed}-`);
-      const newNum = (input || '').trim();
-      if (newNum) {
-        if (drawings.some((d) => d.drawingNumber === newNum)) {
-          alert(`"${newNum}" 도면번호는 이미 사용 중입니다.`);
-        } else {
-          dispatch({ type: 'DUPLICATE_DRAWING', sourceDrawingId: newId, newDrawingNumber: newNum });
-        }
-      }
-    }
   }
 
   function handleMergeAppend() {
@@ -497,6 +494,27 @@ export default function OCREditor({ onDrawingAdded, editDrawing, onEditCancel })
             <p className="text-xs text-amber-600 mt-2">
               ⓘ 이미 등록된 도면입니다 (REV {matchedDrawing.rev || '—'} · 파트 {matchedDrawing.parts.length}개). [BOM에 추가]를 누르면 REV가 다를 때는 리비전 교체로, 같으면 이어 붙이기/전체 교체 중 선택하게 됩니다.
             </p>
+          )}
+          {!isEditMode && !matchedDrawing && (
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={duplicateOnAdd}
+                  onChange={(e) => setDuplicateOnAdd(e.target.checked)}
+                  className="accent-blue-600"
+                />
+                좌/우 대칭 부품처럼, 등록과 동시에 다른 도면번호로도 복제 등록
+              </label>
+              {duplicateOnAdd && (
+                <input
+                  className="mt-2 w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
+                  value={duplicateNumber}
+                  onChange={(e) => setDuplicateNumber(e.target.value)}
+                  placeholder={trimmedDrawingNumber ? `예: ${trimmedDrawingNumber}-L` : '복제할 새 도면번호'}
+                />
+              )}
+            </div>
           )}
         </div>
 
