@@ -53,6 +53,23 @@ export default function Sidebar({
     onClose && onClose();
   }
 
+  function handleDuplicate(e, drawing) {
+    e.stopPropagation();
+    const input = prompt(
+      `"${drawing.drawingNumber}"의 파트 목록을 그대로 복사해 새 도면번호로 등록합니다.\n` +
+        `(좌/우 대칭 부품 등 -L / -R 구분에 사용)\n\n새 도면번호를 입력하세요:`,
+      `${drawing.drawingNumber}-`
+    );
+    if (input == null) return;
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    if (drawings.some((d) => d.drawingNumber === trimmed)) {
+      alert(`"${trimmed}" 도면번호는 이미 사용 중입니다.`);
+      return;
+    }
+    dispatch({ type: 'DUPLICATE_DRAWING', sourceDrawingId: drawing.id, newDrawingNumber: trimmed });
+  }
+
   function getDrawingLevel(drawingNumber) {
     const row = bomRows.find((r) => r.childPart === drawingNumber && r.isAssyRow);
     return row ? row.level : null;
@@ -197,6 +214,13 @@ export default function Sidebar({
                           className="flex-1 text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded"
                         >
                           재등록
+                        </button>
+                        <button
+                          onClick={(e) => handleDuplicate(e, d)}
+                          className="flex-1 text-xs bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded"
+                          title="파트 목록을 그대로 복사해 새 도면번호로 등록 (좌/우 대칭 부품 등)"
+                        >
+                          복제
                         </button>
                       </div>
 

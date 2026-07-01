@@ -197,7 +197,7 @@ function makeColDefs(totalQty) {
     { label: '모품번', key: 'parentPart', w: 140, readOnly: true },
     { label: 'REV', key: 'rev', w: 44 },
     { label: 'NO.', key: 'no', w: 36, readOnly: true },
-    { label: '자품번', key: 'childPart', w: 144, readOnly: true },
+    { label: '자품번', key: 'childPart', w: 144 },
     { label: '품명', key: 'description', w: 320 },
     { label: '구매단위', key: '_purchase', w: 56, readOnly: true },
     { label: '재질', key: 'material', w: 88, readOnly: true },
@@ -560,6 +560,24 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
     dispatch({ type: 'UPDATE_DRAWING_PART', drawingId: row.drawingId, isAssyRow: row.isAssyRow, partSeq: row.no, fields: { [field]: value } });
   }, [bomRows, dispatch]);
 
+  // 자품번(PART NO.) 수정: 조립도면 행이면 도면번호 자체를 변경(참조 연결 유지),
+  // 일반 부품 행이면 그 부품의 partNumber만 변경
+  const updateChildPart = useCallback((id, _field, value) => {
+    const row = bomRows.find((r) => r.id === id);
+    if (!row) return;
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return;
+    if (row.isAssyRow) {
+      if (state.drawings.some((d) => d.id !== row.drawingId && d.drawingNumber === trimmed)) {
+        alert(`"${trimmed}" 도면번호는 이미 사용 중입니다.`);
+        return;
+      }
+      dispatch({ type: 'RENAME_DRAWING_NUMBER', drawingId: row.drawingId, newDrawingNumber: trimmed });
+    } else {
+      dispatch({ type: 'UPDATE_DRAWING_PART', drawingId: row.drawingId, isAssyRow: false, partSeq: row.no, fields: { partNumber: trimmed } });
+    }
+  }, [bomRows, state.drawings, dispatch]);
+
   function handleDragStart(e, row) {
     if (row.isAssyRow) { e.preventDefault(); return; }
     setDragId(row.id);
@@ -891,10 +909,11 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                     if (col.key === 'childPart') {
                       return (
                         <td key="childPart" style={{ width: getColWidth(col), minWidth: getColWidth(col) }}
-                          className="px-1.5 py-1 text-xs border-r border-gray-200 dark:border-gray-700 whitespace-nowrap">
-                          <span className={`font-mono ${row.isAssyRow ? 'font-bold text-blue-800 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
-                            <Highlight text={value} query={q} />
-                          </span>
+                          className="border-r border-gray-200 dark:border-gray-700 px-0 py-0 whitespace-nowrap">
+                          <EditableCell
+                            rowId={row.id} field="childPart" value={value} onUpdate={updateChildPart} query={q} mono
+                            className={row.isAssyRow ? 'font-bold text-blue-800 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}
+                          />
                         </td>
                       );
                     }

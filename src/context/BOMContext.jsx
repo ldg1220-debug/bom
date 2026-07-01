@@ -287,10 +287,56 @@ function reducer(state, action) {
             if ('staNo' in fields) up.staNo = fields.staNo;
             if ('processType' in fields) up.processType = fields.processType;
             if ('spec' in fields) up.spec = fields.spec;
+            if ('partNumber' in fields) up.partNumber = String(fields.partNumber || '').trim();
             return { ...p, ...up };
           }),
         };
       });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
+    // 도면번호(자품번) 자체를 오타 수정 등으로 변경. 다른 도면이 이 도면을
+    // 하위 부품으로 참조 중이면 그 참조도 함께 갱신해 연결이 끊기지 않도록 한다.
+    case 'RENAME_DRAWING_NUMBER': {
+      const { drawingId, newDrawingNumber } = action;
+      const trimmed = String(newDrawingNumber || '').trim();
+      const target = state.drawings.find((d) => d.id === drawingId);
+      if (!target || !trimmed || target.drawingNumber === trimmed) return state;
+      if (state.drawings.some((d) => d.id !== drawingId && d.drawingNumber === trimmed)) return state;
+
+      const oldNumber = target.drawingNumber;
+      const newDrawings = state.drawings.map((d) => {
+        if (d.id === drawingId) return { ...d, drawingNumber: trimmed };
+        if (!d.parts.some((p) => p.partNumber === oldNumber)) return d;
+        return {
+          ...d,
+          parts: d.parts.map((p) => (p.partNumber === oldNumber ? { ...p, partNumber: trimmed } : p)),
+        };
+      });
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
+    }
+
+    // 도면 복제: 좌/우 대칭 부품(예: -L/-R)처럼 파트 구성이 동일한 도면을
+    // 새 도면번호로 복사해 등록. 파트 목록은 그대로 복사되고 독립적으로 편집 가능.
+    case 'DUPLICATE_DRAWING': {
+      const { sourceDrawingId, newDrawingNumber } = action;
+      const trimmed = String(newDrawingNumber || '').trim();
+      const source = state.drawings.find((d) => d.id === sourceDrawingId);
+      if (!source || !trimmed) return state;
+      if (state.drawings.some((d) => d.drawingNumber === trimmed)) return state;
+
+      const now = new Date().toISOString();
+      const duplicated = {
+        ...source,
+        id: uuidv4(),
+        drawingNumber: trimmed,
+        parts: source.parts.map((p) => ({ ...p })),
+        createdAt: now,
+        updatedAt: now,
+      };
+      const newDrawings = [...state.drawings, duplicated];
       const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings };
     }
