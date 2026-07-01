@@ -28,7 +28,8 @@
     "publish": {
       "provider": "github",
       "owner": "ldg1220-debug",
-      "repo": "bom"
+      "repo": "bom",
+      "releaseType": "release"
     },
     "win": {
       "target": [
