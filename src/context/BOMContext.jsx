@@ -169,6 +169,17 @@ function reducer(state, action) {
       return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings, purchaseUnits: newPU };
     }
 
+    // 여러 개의 독립(루트) 도면을 한번에 완전 삭제 (E-BOM 레벨1 체크 삭제용)
+    case 'DELETE_DRAWINGS': {
+      const idSet = new Set(action.drawingIds);
+      const newDrawings = state.drawings.filter((d) => !idSet.has(d.id));
+      const { finalRows, warnings } = rebuild(newDrawings, state.project.totalQty);
+      const newPU = new Set(
+        [...state.purchaseUnits].filter((k) => ![...idSet].some((id) => k.startsWith(`${id}:`)))
+      );
+      return { ...state, drawings: newDrawings, bomRows: finalRows, circularWarnings: warnings, purchaseUnits: newPU };
+    }
+
     case 'SET_PURCHASE_UNITS_RANGE': {
       const next = new Set(state.purchaseUnits);
       for (const key of action.keys) { action.value ? next.add(key) : next.delete(key); }

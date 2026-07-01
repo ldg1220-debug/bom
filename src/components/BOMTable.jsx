@@ -419,7 +419,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
         const next = new Set(prev);
         for (let i = from; i <= to; i++) {
           const r = displayRows[i];
-          if (!r || (r.isAssyRow && !r.parentPart)) continue;
+          if (!r) continue;
           value ? next.add(r.id) : next.delete(r.id);
         }
         return next;
@@ -488,6 +488,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
 
   function deleteChecked() {
     const rowInfos = [];
+    const rootDrawingIds = new Set();
     for (const rowId of checkedRowIds) {
       const row = bomRows.find((r) => r.id === rowId);
       if (!row) continue;
@@ -501,11 +502,22 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
         // 참조 중이면 그 연결은 별개로 그대로 유지된다.
         const parentDrawing = state.drawings.find((d) => d.drawingNumber === row.parentPart);
         if (parentDrawing) rowInfos.push({ drawingId: parentDrawing.id, partSeq: row.no });
+      } else {
+        // 모품번 없는 루트 레벨(레벨1) 조립도면 행: 다른 도면이 참조하지 않는
+        // 독립 도면이므로 등록 목록에서 도면 자체를 완전히 삭제한다.
+        rootDrawingIds.add(row.drawingId);
       }
     }
-    if (!rowInfos.length) return;
-    if (confirm(`${rowInfos.length}개 항목을 삭제하시겠습니까?\n(조립도면 헤더 행을 포함한 경우, 하위 부품도 함께 제거됩니다)`)) {
-      dispatch({ type: 'DELETE_BOM_PART_ROWS', rowInfos });
+    const totalCount = rowInfos.length + rootDrawingIds.size;
+    if (!totalCount) return;
+
+    let msg = `${totalCount}개 항목을 삭제하시겠습니까?\n(조립도면 헤더 행을 포함한 경우, 하위 부품도 함께 제거됩니다)`;
+    if (rootDrawingIds.size > 0) {
+      msg += `\n\n⚠️ 이 중 ${rootDrawingIds.size}개는 모품번이 없는 독립 도면으로, 등록된 도면 목록에서 완전히 삭제됩니다.`;
+    }
+    if (confirm(msg)) {
+      if (rowInfos.length) dispatch({ type: 'DELETE_BOM_PART_ROWS', rowInfos });
+      if (rootDrawingIds.size) dispatch({ type: 'DELETE_DRAWINGS', drawingIds: [...rootDrawingIds] });
       setCheckedRowIds(new Set());
     }
   }
@@ -823,19 +835,17 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                       return (
                         <td key="_drag" style={{ width: getColWidth(col), minWidth: getColWidth(col) }}
                           className="border-r border-gray-200 dark:border-gray-700 text-center px-0.5">
-                          {(!row.isAssyRow || row.parentPart) && (
-                            <div className="flex items-center justify-center gap-0.5">
-                              <input
-                                type="checkbox"
-                                checked={checkedRowIds.has(row.id)}
-                                onChange={(e) => handleDragCheckClick(e, row, rowIndex)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-3 h-3 accent-blue-600 cursor-pointer"
-                                title="클릭: 선택, Shift+클릭: 범위 선택"
-                              />
-                              <span className="text-gray-300 dark:text-gray-600 cursor-grab text-xs select-none" title="드래그하여 순서 변경">⠿</span>
-                            </div>
-                          )}
+                          <div className="flex items-center justify-center gap-0.5">
+                            <input
+                              type="checkbox"
+                              checked={checkedRowIds.has(row.id)}
+                              onChange={(e) => handleDragCheckClick(e, row, rowIndex)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-3 h-3 accent-blue-600 cursor-pointer"
+                              title="클릭: 선택, Shift+클릭: 범위 선택"
+                            />
+                            <span className="text-gray-300 dark:text-gray-600 cursor-grab text-xs select-none" title="드래그하여 순서 변경">⠿</span>
+                          </div>
                         </td>
                       );
                     }
