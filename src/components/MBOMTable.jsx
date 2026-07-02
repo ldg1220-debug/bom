@@ -110,6 +110,33 @@ export default function MBOMTable() {
     } catch { return new Set(); }
   });
 
+  const [colWidths, setColWidths] = useState(() => {
+    try { const s = localStorage.getItem('bom:col:mbom:widths'); return s ? JSON.parse(s) : {}; }
+    catch { return {}; }
+  });
+  const resizeRef = useRef(null);
+
+  function getColWidth(col) { return colWidths[col.key] ?? col.w; }
+
+  function startColResize(e, key, currentW) {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = { key, startX: e.clientX, startW: currentW };
+    function onMouseMove(me) {
+      if (!resizeRef.current) return;
+      const { key: k, startX, startW } = resizeRef.current;
+      setColWidths((p) => ({ ...p, [k]: Math.max(30, startW + (me.clientX - startX)) }));
+    }
+    function onMouseUp() {
+      resizeRef.current = null;
+      setColWidths((p) => { localStorage.setItem('bom:col:mbom:widths', JSON.stringify(p)); return p; });
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
   function toggleCol(key) {
     if (MBOM_FIXED_KEYS.has(key)) return;
     setHiddenCols((prev) => {
@@ -235,17 +262,22 @@ export default function MBOMTable() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        <table className="border-collapse" style={{ minWidth: visibleCols.reduce((s, c) => s + c.w, 0) + 'px' }}>
+        <table className="border-collapse" style={{ minWidth: visibleCols.reduce((s, c) => s + getColWidth(c), 0) + 'px' }}>
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-100 dark:bg-gray-800">
               {visibleCols.map((col) => (
                 <th
                   key={col.key}
-                  style={{ minWidth: col.w, width: col.w }}
-                  className="px-2 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 border-b-2 border-r border-gray-300 dark:border-gray-600 whitespace-nowrap text-left"
+                  style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
+                  className="relative px-2 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 border-b-2 border-r border-gray-300 dark:border-gray-600 whitespace-nowrap text-left select-none"
                 >
                   {col.label}
                   {!col.readOnly && col.type !== 'checkbox' && <span className="ml-1 text-blue-300 dark:text-blue-600 text-xs">✎</span>}
+                  <div
+                    onMouseDown={(e) => startColResize(e, col.key, getColWidth(col))}
+                    className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-blue-400 hover:opacity-60 z-20"
+                    title="드래그하여 열 폭 조절"
+                  />
                 </th>
               ))}
             </tr>
@@ -263,7 +295,7 @@ export default function MBOMTable() {
 
                   if (col.key === 'no') {
                     return (
-                      <td key="no" style={{ minWidth: col.w, width: col.w }}
+                      <td key="no" style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                         className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-center text-gray-500 dark:text-gray-400">
                         {value}
                       </td>
@@ -272,7 +304,7 @@ export default function MBOMTable() {
 
                   if (col.key === 'childPart') {
                     return (
-                      <td key="childPart" style={{ minWidth: col.w, width: col.w }}
+                      <td key="childPart" style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                         className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 font-mono font-semibold text-blue-700 dark:text-blue-300 whitespace-nowrap">
                         {value}
                       </td>
@@ -281,7 +313,7 @@ export default function MBOMTable() {
 
                   if (col.key === 'qtyTotal') {
                     return (
-                      <td key="qtyTotal" style={{ minWidth: col.w, width: col.w }}
+                      <td key="qtyTotal" style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                         className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-right font-bold text-gray-900 dark:text-white">
                         {typeof value === 'number' ? value.toLocaleString() : value}
                       </td>
@@ -290,7 +322,7 @@ export default function MBOMTable() {
 
                   if (col.key === 'parents') {
                     return (
-                      <td key="parents" style={{ minWidth: col.w, width: col.w }}
+                      <td key="parents" style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                         className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
                         {value}
                       </td>
@@ -299,7 +331,7 @@ export default function MBOMTable() {
 
                   if (col.readOnly) {
                     return (
-                      <td key={col.key} style={{ minWidth: col.w, width: col.w }}
+                      <td key={col.key} style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                         className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
                         {value || ''}
                       </td>
@@ -309,7 +341,7 @@ export default function MBOMTable() {
                   if (col.type === 'checkbox') {
                     const isOverridden = mbomOverrides[item.childPart]?.[col.key] != null;
                     return (
-                      <td key={col.key} style={{ minWidth: col.w, width: col.w }}
+                      <td key={col.key} style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                         className={`border-r border-gray-200 dark:border-gray-700 text-center ${isOverridden ? 'bg-yellow-50 dark:bg-yellow-950' : ''}`}>
                         <input
                           type="checkbox"
@@ -324,7 +356,7 @@ export default function MBOMTable() {
                   // 편집 가능 컬럼
                   const isOverridden = !!(mbomOverrides[item.childPart]?.[col.key] != null);
                   return (
-                    <td key={col.key} style={{ minWidth: col.w, width: col.w }}
+                    <td key={col.key} style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                       className={`border-r border-gray-200 dark:border-gray-700 px-0 py-0 ${isOverridden ? 'bg-yellow-50 dark:bg-yellow-950' : ''}`}>
                       <EditableCell
                         value={value}
