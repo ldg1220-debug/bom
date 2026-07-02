@@ -7,14 +7,20 @@ const COLS = [
   { key: 'no',          label: 'No',           w: 40,  readOnly: true  },
   { key: 'staNo',       label: 'Station',      w: 100 },
   { key: 'processType', label: '공정명',        w: 100 },
+  { key: 'parents',     label: '모품번 (출처)', w: 220, readOnly: true  },
   { key: 'childPart',   label: '자품번',        w: 160, readOnly: true  },
   { key: 'description', label: '품명',          w: 200 },
   { key: 'spec',        label: '규격',          w: 120 },
   { key: 'material',    label: '재질',          w: 100 },
   { key: 'vendor',      label: '제작업체',      w: 120 },
   { key: 'unit',        label: '단위',          w: 48,  readOnly: true  },
+  { key: 'carType',     label: '차종',          w: 100 },
   { key: 'qtyTotal',    label: '총소요량',      w: 88,  readOnly: true  },
-  { key: 'parents',     label: '모품번 (출처)', w: 220, readOnly: true  },
+  { key: 'domestic',        label: '국내',       w: 56,  type: 'checkbox' },
+  { key: 'overseas',        label: '국외',       w: 56,  type: 'checkbox' },
+  { key: 'stockMaterial',   label: 'STOCK자재',  w: 80,  type: 'checkbox' },
+  { key: 'supplierMaterial', label: '사급자재',  w: 80,  type: 'checkbox' },
+  { key: 'supplierSource',  label: '사급처',     w: 120 },
   { key: 'remark',      label: '비고',          w: 160 },
 ];
 
@@ -174,7 +180,9 @@ export default function MBOMTable() {
     const headers = visibleCols.map((c) => c.label).join(',');
     const rows = aggregated.map((item) =>
       visibleCols.map((c) => {
-        const v = c.key === 'parents' ? item.parents.join(' / ') : String(item[c.key] ?? '');
+        const v = c.key === 'parents' ? item.parents.join(' / ')
+          : c.type === 'checkbox' ? (item[c.key] ? 'O' : '')
+          : String(item[c.key] ?? '');
         return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v;
       }).join(',')
     ).join('\n');
@@ -237,7 +245,7 @@ export default function MBOMTable() {
                   className="px-2 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 border-b-2 border-r border-gray-300 dark:border-gray-600 whitespace-nowrap text-left"
                 >
                   {col.label}
-                  {!col.readOnly && <span className="ml-1 text-blue-300 dark:text-blue-600 text-xs">✎</span>}
+                  {!col.readOnly && col.type !== 'checkbox' && <span className="ml-1 text-blue-300 dark:text-blue-600 text-xs">✎</span>}
                 </th>
               ))}
             </tr>
@@ -294,6 +302,21 @@ export default function MBOMTable() {
                       <td key={col.key} style={{ minWidth: col.w, width: col.w }}
                         className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300">
                         {value || ''}
+                      </td>
+                    );
+                  }
+
+                  if (col.type === 'checkbox') {
+                    const isOverridden = mbomOverrides[item.childPart]?.[col.key] != null;
+                    return (
+                      <td key={col.key} style={{ minWidth: col.w, width: col.w }}
+                        className={`border-r border-gray-200 dark:border-gray-700 text-center ${isOverridden ? 'bg-yellow-50 dark:bg-yellow-950' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={!!value}
+                          onChange={(e) => handleOverride(item.childPart, col.key, e.target.checked)}
+                          className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
+                        />
                       </td>
                     );
                   }
