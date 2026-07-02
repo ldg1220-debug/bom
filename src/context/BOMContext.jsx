@@ -14,6 +14,7 @@ function makeInitialState(projectMeta) {
       name: projectMeta?.name || 'BOM 프로젝트',
       baseDate: projectMeta?.baseDate || '',
       totalQty: projectMeta?.totalQty ?? 33,
+      carTypes: projectMeta?.carTypes || [], // 차종이 여러 개인 프로젝트를 위한 차종 이름 목록 (없으면 기존과 동일하게 동작)
       createdAt: projectMeta?.createdAt || now,
       updatedAt: now,
     },
@@ -21,6 +22,7 @@ function makeInitialState(projectMeta) {
     bomRows: [],
     circularWarnings: [],
     purchaseUnits: new Set(),
+    carTypeUnits: {}, // { [차종이름]: Set<puKey> } — E-BOM 행이 어느 차종에 속하는지
     mbomOverrides: {},
     history: [],
   };
@@ -105,11 +107,17 @@ function reducer(state, action) {
     case 'LOAD_PROJECT': {
       const { drawings = [], project } = action.data;
       const { finalRows, warnings } = rebuild(drawings, project?.totalQty ?? 33);
+      const carTypeUnits = {};
+      for (const [carType, arr] of Object.entries(action.data.carTypeUnits || {})) {
+        carTypeUnits[carType] = new Set(arr);
+      }
       return {
         ...action.data,
+        project: { carTypes: [], ...project },
         bomRows: finalRows,
         circularWarnings: warnings,
         purchaseUnits: new Set(action.data.purchaseUnits || []),
+        carTypeUnits,
         mbomOverrides: action.data.mbomOverrides || {},
         history: action.data.history || [],
       };
@@ -118,7 +126,16 @@ function reducer(state, action) {
     case 'SET_PROJECT_INFO': {
       const newProject = { ...state.project, ...action.payload };
       const finalRows = recalculate(state.bomRows, newProject.totalQty);
-      return { ...state, project: newProject, bomRows: finalRows };
+      // 차종 목록에서 제거된 차종의 체크 데이터도 함께 정리
+      let carTypeUnits = state.carTypeUnits;
+      if (action.payload.carTypes) {
+        const keepSet = new Set(action.payload.carTypes);
+        carTypeUnits = {};
+        for (const [carType, set] of Object.entries(state.carTypeUnits || {})) {
+          if (keepSet.has(carType)) carTypeUnits[carType] = set;
+        }
+      }
+      return { ...state, project: newProject, bomRows: finalRows, carTypeUnits };
     }
 
     case 'REPLACE_ALL_DRAWINGS': {
@@ -207,6 +224,15 @@ function reducer(state, action) {
       const next = new Set(state.purchaseUnits);
       for (const key of action.keys) { action.value ? next.add(key) : next.delete(key); }
       return { ...state, purchaseUnits: next };
+    }
+
+    // E-BOM 행이 어느 차종에 속하는지 체크/해제 (차종별 M-BOM 수량 집계에 사용)
+    case 'SET_CAR_TYPE_UNIT': {
+      const { carType, key, value } = action;
+      const current = state.carTypeUnits?.[carType] || new Set();
+      const next = new Set(current);
+      value ? next.add(key) : next.delete(key);
+      return { ...state, carTypeUnits: { ...(state.carTypeUnits || {}), [carType]: next } };
     }
 
     case 'UPDATE_BOM_ROW': {

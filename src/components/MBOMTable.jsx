@@ -3,26 +3,30 @@ import { useBOM } from '../context/BOMContext';
 
 const MBOM_FIXED_KEYS = new Set(['no', 'childPart', 'description', 'unit', 'qtyTotal', 'parents']);
 
-const COLS = [
-  { key: 'no',          label: 'No',           w: 40,  readOnly: true  },
-  { key: 'staNo',       label: 'Station',      w: 100 },
-  { key: 'processType', label: '공정명',        w: 100 },
-  { key: 'parents',     label: '모품번 (출처)', w: 220, readOnly: true  },
-  { key: 'childPart',   label: '자품번',        w: 160, readOnly: true  },
-  { key: 'description', label: '품명',          w: 200 },
-  { key: 'spec',        label: '규격',          w: 120 },
-  { key: 'material',    label: '재질',          w: 100 },
-  { key: 'vendor',      label: '제작업체',      w: 120 },
-  { key: 'unit',        label: '단위',          w: 48,  readOnly: true  },
-  { key: 'carType',     label: '차종',          w: 100 },
-  { key: 'qtyTotal',    label: '총소요량',      w: 88,  readOnly: true  },
-  { key: 'domestic',        label: '국내',       w: 56,  type: 'checkbox' },
-  { key: 'overseas',        label: '국외',       w: 56,  type: 'checkbox' },
-  { key: 'stockMaterial',   label: 'STOCK자재',  w: 80,  type: 'checkbox' },
-  { key: 'supplierMaterial', label: '사급자재',  w: 80,  type: 'checkbox' },
-  { key: 'supplierSource',  label: '사급처',     w: 120 },
-  { key: 'remark',      label: '비고',          w: 160 },
-];
+// 차종이 여러 개인 프로젝트는 단위와 총소요량 사이에 차종별 수량 컬럼이 하나씩 추가됨
+// (E-BOM에서 체크된 행들의 qtyTotal을 차종별로 합산 — makeCols 아래 aggregated 로직 참고)
+function makeCols(carTypes = []) {
+  return [
+    { key: 'no',          label: 'No',           w: 40,  readOnly: true  },
+    { key: 'staNo',       label: 'Station',      w: 100 },
+    { key: 'processType', label: '공정명',        w: 100 },
+    { key: 'parents',     label: '모품번 (출처)', w: 220, readOnly: true  },
+    { key: 'childPart',   label: '자품번',        w: 160, readOnly: true  },
+    { key: 'description', label: '품명',          w: 200 },
+    { key: 'spec',        label: '규격',          w: 120 },
+    { key: 'material',    label: '재질',          w: 100 },
+    { key: 'vendor',      label: '제작업체',      w: 120 },
+    { key: 'unit',        label: '단위',          w: 48,  readOnly: true  },
+    ...carTypes.map((c) => ({ key: `carTypeQty:${c}`, label: c, w: 90, readOnly: true, isCarTypeQty: true })),
+    { key: 'qtyTotal',    label: '총소요량',      w: 88,  readOnly: true  },
+    { key: 'domestic',        label: '국내',       w: 56,  type: 'checkbox' },
+    { key: 'overseas',        label: '국외',       w: 56,  type: 'checkbox' },
+    { key: 'stockMaterial',   label: 'STOCK자재',  w: 80,  type: 'checkbox' },
+    { key: 'supplierMaterial', label: '사급자재',  w: 80,  type: 'checkbox' },
+    { key: 'supplierSource',  label: '사급처',     w: 120 },
+    { key: 'remark',      label: '비고',          w: 160 },
+  ];
+}
 
 // ── 더블클릭 편집 셀 ─────────────────────────────────────────────
 function EditableCell({ value, onCommit, align = 'left' }) {
@@ -101,7 +105,8 @@ const puKey = (row) => `${row.drawingId}:${row.isAssyRow ? 'assy' : row.no}`;
 
 export default function MBOMTable() {
   const { state, dispatch } = useBOM();
-  const { bomRows, purchaseUnits = new Set(), project, mbomOverrides = {} } = state;
+  const { bomRows, purchaseUnits = new Set(), carTypeUnits = {}, project, mbomOverrides = {} } = state;
+  const carTypes = project.carTypes || [];
 
   const [hiddenCols, setHiddenCols] = useState(() => {
     try {
@@ -147,14 +152,16 @@ export default function MBOMTable() {
     });
   }
 
-  const visibleCols = useMemo(() => COLS.filter((c) => !hiddenCols.has(c.key)), [hiddenCols]);
+  const COLS = useMemo(() => makeCols(carTypes), [carTypes]);
+  const visibleCols = useMemo(() => COLS.filter((c) => !hiddenCols.has(c.key)), [COLS, hiddenCols]);
 
   const { aggregated, checkedCount } = useMemo(() => {
     const map = new Map();
     let checkedCount = 0;
 
     for (const row of bomRows) {
-      if (!purchaseUnits.has(puKey(row))) continue;
+      const key = puKey(row);
+      if (!purchaseUnits.has(key)) continue;
       checkedCount++;
 
       const groupKey = row.childPart || `__${row.drawingId}:${row.no}`;
@@ -167,7 +174,14 @@ export default function MBOMTable() {
         if (!ex.spec && row.spec) ex.spec = row.spec;
         if (!ex.material && row.material) ex.material = row.material;
         if (!ex.vendor && row.vendor) ex.vendor = row.vendor;
+        for (const c of carTypes) {
+          if (carTypeUnits[c]?.has(key)) ex.carTypeQty[c] = (ex.carTypeQty[c] || 0) + row.qtyTotal;
+        }
       } else {
+        const carTypeQty = {};
+        for (const c of carTypes) {
+          if (carTypeUnits[c]?.has(key)) carTypeQty[c] = row.qtyTotal;
+        }
         map.set(groupKey, {
           childPart: row.childPart,
           description: row.description,
@@ -180,14 +194,18 @@ export default function MBOMTable() {
           remark: row.remark || '',
           staNoSet: new Set(row.staNo ? [row.staNo] : []),
           processTypeSet: new Set(row.processType ? [row.processType] : []),
+          carTypeQty,
         });
       }
     }
 
     const aggregated = [...map.values()].map((item, i) => {
-      const { staNoSet, processTypeSet, ...rest } = item;
+      const { staNoSet, processTypeSet, carTypeQty, ...rest } = item;
+      const carTypeCols = {};
+      for (const c of carTypes) carTypeCols[`carTypeQty:${c}`] = carTypeQty[c] || 0;
       const base = {
         ...rest,
+        ...carTypeCols,
         no: i + 1,
         staNo: [...staNoSet].join(' / '),
         processType: [...processTypeSet].join(' / '),
@@ -197,7 +215,7 @@ export default function MBOMTable() {
       return { ...base, ...overrides };
     });
     return { aggregated, checkedCount };
-  }, [bomRows, purchaseUnits, mbomOverrides]);
+  }, [bomRows, purchaseUnits, carTypeUnits, carTypes, mbomOverrides]);
 
   function handleOverride(childPart, field, value) {
     dispatch({ type: 'UPDATE_MBOM_OVERRIDE', childPart, fields: { [field]: value } });
@@ -316,6 +334,15 @@ export default function MBOMTable() {
                       <td key="qtyTotal" style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
                         className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-right font-bold text-gray-900 dark:text-white">
                         {typeof value === 'number' ? value.toLocaleString() : value}
+                      </td>
+                    );
+                  }
+
+                  if (col.isCarTypeQty) {
+                    return (
+                      <td key={col.key} style={{ minWidth: getColWidth(col), width: getColWidth(col) }}
+                        className="px-2 py-1.5 text-xs border-r border-gray-200 dark:border-gray-700 text-right text-indigo-700 dark:text-indigo-300">
+                        {value ? value.toLocaleString() : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       </td>
                     );
                   }

@@ -185,7 +185,7 @@ function LinkDrawingModal({ row, drawings, onLink, onClose }) {
 
 const EDITABLE_KEYS = new Set(['itemType', 'staNo', 'processType', 'drawingDate', 'rev', 'spec', 'sizeT', 'sizeW', 'sizeL', 'weight', 'unit', 'remark']);
 
-function makeColDefs(totalQty) {
+function makeColDefs(totalQty, carTypes = []) {
   return [
     { label: '', key: '_drag', w: 32, readOnly: true },
     { label: '순번', key: 'seq', w: 40, readOnly: true },
@@ -200,6 +200,7 @@ function makeColDefs(totalQty) {
     { label: '자품번', key: 'childPart', w: 144 },
     { label: '품명', key: 'description', w: 320 },
     { label: '구매단위', key: '_purchase', w: 56, readOnly: true },
+    ...carTypes.map((c) => ({ label: c, key: `carType:${c}`, w: 60, readOnly: true, isCarType: true })),
     { label: '재질', key: 'material', w: 88, readOnly: true },
     { label: '제작업체', key: 'vendor', w: 100 },
     { label: '규격SPEC', key: 'spec', w: 88 },
@@ -262,7 +263,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
     });
   }
 
-  const colDefs = useMemo(() => makeColDefs(project.totalQty), [project.totalQty]);
+  const colDefs = useMemo(() => makeColDefs(project.totalQty, project.carTypes), [project.totalQty, project.carTypes]);
   const visibleColDefs = useMemo(() => colDefs.filter((c) => !hiddenCols.has(c.key)), [colDefs, hiddenCols]);
 
   function getColWidth(col) { return colWidths[col.key] ?? col.w; }
@@ -942,6 +943,26 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                             onChange={(e) => handlePurchaseCheckClick(e, row, rowIndex, pKey)}
                             className="w-3.5 h-3.5 accent-blue-600 cursor-pointer"
                             title={(row.isAssyRow ? '조립품 구매단위 체크 → M-BOM에 집계' : '구매단위 체크 → M-BOM에 집계') + ' / Shift+클릭: 범위 선택'}
+                          />
+                        </td>
+                      );
+                    }
+
+                    if (col.isCarType) {
+                      if (row.isAssyRow && row.level <= 1) {
+                        return <td key={col.key} style={{ width: getColWidth(col), minWidth: getColWidth(col) }} className="border-r border-gray-200 dark:border-gray-700" />;
+                      }
+                      const carType = col.key.slice('carType:'.length);
+                      const pKey = row.isAssyRow ? `${row.drawingId}:assy` : `${row.drawingId}:${row.no}`;
+                      const checked = state.carTypeUnits?.[carType]?.has(pKey) || false;
+                      return (
+                        <td key={col.key} style={{ width: getColWidth(col), minWidth: getColWidth(col) }}
+                          className="border-r border-gray-200 dark:border-gray-700 text-center px-1">
+                          <input
+                            type="checkbox" checked={checked}
+                            onChange={(e) => dispatch({ type: 'SET_CAR_TYPE_UNIT', carType, key: pKey, value: e.target.checked })}
+                            className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+                            title={`이 부품이 "${carType}" 차종에 쓰이는지 체크 → M-BOM에 차종별로 집계`}
                           />
                         </td>
                       );

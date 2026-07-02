@@ -22,10 +22,15 @@ function todayKey() {
 }
 
 function toPersistable(state) {
-  const { bomRows, circularWarnings, purchaseUnits, ...persistable } = state;
+  const { bomRows, circularWarnings, purchaseUnits, carTypeUnits, ...persistable } = state;
+  const carTypeUnitsArr = {};
+  for (const [carType, set] of Object.entries(carTypeUnits || {})) {
+    carTypeUnitsArr[carType] = [...set];
+  }
   return {
     ...persistable,
     purchaseUnits: [...(purchaseUnits || [])], // Set → Array for IndexedDB serialization
+    carTypeUnits: carTypeUnitsArr,
   };
 }
 

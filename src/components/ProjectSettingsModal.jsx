@@ -8,19 +8,34 @@ export default function ProjectSettingsModal({ onClose }) {
   const [name, setName] = useState(project.name);
   const [baseDate, setBaseDate] = useState(project.baseDate || '');
   const [totalQty, setTotalQty] = useState(project.totalQty);
+  const [carTypes, setCarTypes] = useState(project.carTypes || []);
+  const [newCarType, setNewCarType] = useState('');
   const [dedupResult, setDedupResult] = useState(null);
 
   useEffect(() => {
     setName(project.name);
     setBaseDate(project.baseDate || '');
     setTotalQty(project.totalQty);
+    setCarTypes(project.carTypes || []);
   }, [project]);
+
+  function addCarType() {
+    const trimmed = newCarType.trim();
+    if (!trimmed) return;
+    if (carTypes.includes(trimmed)) { alert('이미 있는 차종명입니다.'); return; }
+    setCarTypes((prev) => [...prev, trimmed]);
+    setNewCarType('');
+  }
+
+  function removeCarType(name) {
+    setCarTypes((prev) => prev.filter((c) => c !== name));
+  }
 
   function save() {
     if (!name.trim()) { alert('프로젝트명을 입력하세요.'); return; }
     dispatch({
       type: 'SET_PROJECT_INFO',
-      payload: { name: name.trim(), baseDate, totalQty: parseInt(totalQty) || 1 },
+      payload: { name: name.trim(), baseDate, totalQty: parseInt(totalQty) || 1, carTypes },
     });
     onClose();
   }
@@ -124,6 +139,37 @@ export default function ProjectSettingsModal({ onClose }) {
                 onChange={(e) => setTotalQty(e.target.value)}
               />
               <p className="text-xs text-gray-400 mt-1">총수량 = 1량 × {totalQty || '?'}</p>
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-lg p-3">
+            <p className="text-xs font-semibold text-gray-700 mb-1.5">
+              차종 관리 <span className="text-gray-400 font-normal">(차종이 여러 개인 경우에만 사용)</span>
+            </p>
+            <p className="text-xs text-gray-500 mb-2">
+              차종을 등록하면 E-BOM에서 행마다 어느 차종에 쓰이는지 체크할 수 있고, M-BOM에서 차종별 수량이 나뉘어 표시됩니다.
+            </p>
+            {carTypes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {carTypes.map((c) => (
+                  <span key={c} className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded-full">
+                    {c}
+                    <button onClick={() => removeCarType(c)} className="text-indigo-400 hover:text-indigo-700 leading-none">✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={newCarType}
+                onChange={(e) => setNewCarType(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCarType(); } }}
+                placeholder="예: EMU-A"
+                className="flex-1 border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              <button onClick={addCarType} className="px-3 py-1.5 text-xs font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">
+                추가
+              </button>
             </div>
           </div>
 
