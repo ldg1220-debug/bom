@@ -445,7 +445,7 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
       const keys = [];
       for (let i = from; i <= to; i++) {
         const r = displayRows[i];
-        if (!r || (r.isAssyRow && r.level <= 1)) continue;
+        if (!r) continue;
         keys.push(r.isAssyRow ? `${r.drawingId}:assy` : `${r.drawingId}:${r.no}`);
       }
       dispatch({ type: 'SET_PURCHASE_UNITS_RANGE', keys, value });
@@ -930,9 +930,6 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                     }
 
                     if (col.key === '_purchase') {
-                      if (row.isAssyRow && row.level <= 1) {
-                        return <td key="_purchase" style={{ width: getColWidth(col), minWidth: getColWidth(col) }} className="border-r border-gray-200 dark:border-gray-700" />;
-                      }
                       const pKey = row.isAssyRow ? `${row.drawingId}:assy` : `${row.drawingId}:${row.no}`;
                       const checked = state.purchaseUnits?.has(pKey) || false;
                       return (
@@ -949,9 +946,6 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                     }
 
                     if (col.isCarType) {
-                      if (row.isAssyRow && row.level <= 1) {
-                        return <td key={col.key} style={{ width: getColWidth(col), minWidth: getColWidth(col) }} className="border-r border-gray-200 dark:border-gray-700" />;
-                      }
                       const carType = col.key.slice('carType:'.length);
                       const pKey = row.isAssyRow ? `${row.drawingId}:assy` : `${row.drawingId}:${row.no}`;
                       const checked = state.carTypeUnits?.[carType]?.has(pKey) || false;
