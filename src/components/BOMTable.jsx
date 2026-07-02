@@ -48,6 +48,22 @@ function countDescendants(rows, rootChildPart) {
   return count;
 }
 
+// rootRow(조립도면 행)의 puKey 자신 + 그 하위 트리 전체(자손 행들)의 puKey 목록을 반환.
+// id로 정확한 위치를 찾으므로, 같은 도면이 트리 여러 곳에서 재사용되는 경우에도 그 자리의
+// 하위 트리만 정확히 대상이 된다 (다른 위치의 같은 도면 인스턴스는 영향 없음).
+function getSubtreePuKeys(bomRows, rootRow) {
+  const idx = bomRows.findIndex((r) => r.id === rootRow.id);
+  if (idx === -1) return [];
+  const rootLevel = bomRows[idx].level;
+  const keys = [rootRow.isAssyRow ? `${rootRow.drawingId}:assy` : `${rootRow.drawingId}:${rootRow.no}`];
+  for (let i = idx + 1; i < bomRows.length; i++) {
+    const r = bomRows[i];
+    if (r.level <= rootLevel) break;
+    keys.push(r.isAssyRow ? `${r.drawingId}:assy` : `${r.drawingId}:${r.no}`);
+  }
+  return keys;
+}
+
 function Highlight({ text, query }) {
   if (!query || !text) return <>{text ?? ''}</>;
   const str = String(text);
@@ -954,9 +970,18 @@ export default function BOMTable({ isDark = false, searchRef, onOpenImport, onOp
                           className="border-r border-gray-200 dark:border-gray-700 text-center px-1">
                           <input
                             type="checkbox" checked={checked}
-                            onChange={(e) => dispatch({ type: 'SET_CAR_TYPE_UNIT', carType, key: pKey, value: e.target.checked })}
+                            onChange={(e) => {
+                              const value = e.target.checked;
+                              if (row.isAssyRow && e.nativeEvent.shiftKey) {
+                                // Shift+클릭: 이 조립도면 하위 트리 전체를 한번에 같은 차종으로 표시
+                                const keys = getSubtreePuKeys(bomRows, row);
+                                dispatch({ type: 'SET_CAR_TYPE_UNITS_RANGE', carType, keys, value });
+                              } else {
+                                dispatch({ type: 'SET_CAR_TYPE_UNIT', carType, key: pKey, value });
+                              }
+                            }}
                             className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
-                            title={`이 부품이 "${carType}" 차종에 쓰이는지 체크 → M-BOM에 차종별로 집계`}
+                            title={`이 부품이 "${carType}" 차종에 쓰이는지 체크 → M-BOM에 차종별로 집계` + (row.isAssyRow ? ' / Shift+클릭: 이 조립도면 하위 전체 적용' : '')}
                           />
                         </td>
                       );

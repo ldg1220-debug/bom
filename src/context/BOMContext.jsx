@@ -235,6 +235,15 @@ function reducer(state, action) {
       return { ...state, carTypeUnits: { ...(state.carTypeUnits || {}), [carType]: next } };
     }
 
+    // 조립도면에서 Shift+클릭 시 그 하위 트리 전체를 한번에 같은 차종으로 표시
+    case 'SET_CAR_TYPE_UNITS_RANGE': {
+      const { carType, keys, value } = action;
+      const current = state.carTypeUnits?.[carType] || new Set();
+      const next = new Set(current);
+      for (const k of keys) { value ? next.add(k) : next.delete(k); }
+      return { ...state, carTypeUnits: { ...(state.carTypeUnits || {}), [carType]: next } };
+    }
+
     case 'UPDATE_BOM_ROW': {
       const updated = state.bomRows.map((row) =>
         row.id === action.rowId ? { ...row, ...action.fields } : row
